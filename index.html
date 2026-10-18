@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>aGENtic Hub</title>
+<meta name="description" content="Your PC's trainings, watched and steered from your phone.">
+<meta name="theme-color" content="#4f7cff">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="icon" href="icon-192.png">
+<style>
+  :root {
+    --bg: #eef0f5; --card: #ffffff; --ink: #1d2230; --sub: #5b6377; --line: #dde1ea;
+    --accent: #4f7cff; --ok: #1f9d5c; --warn: #b7791f; --bad: #b42318; --soft: #f5f6fa;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #11141b; --card: #1a1f2a; --ink: #e6e9f0; --sub: #9aa3b5; --line: #2a3140;
+            --accent: #7b9cff; --ok: #3ccf86; --warn: #e3a93b; --bad: #ff6b5f; --soft: #222837; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+         padding: env(safe-area-inset-top) 0 calc(64px + env(safe-area-inset-bottom)); }
+  header { position: sticky; top: 0; z-index: 2; background: var(--bg); padding: 12px 16px 8px; border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 18px; margin: 0; }
+  header .meta { color: var(--sub); font-size: 13px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; background: var(--sub); }
+  .dot.on { background: var(--ok); } .dot.late { background: var(--warn); } .dot.off { background: var(--bad); }
+  main { padding: 12px 16px; display: grid; gap: 10px; max-width: 720px; margin: 0 auto; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px; display: grid; gap: 8px; }
+  .row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+  .title { font-weight: 650; overflow-wrap: anywhere; }
+  .pill { font-size: 12px; padding: 1px 9px; border-radius: 999px; border: 1px solid var(--line); color: var(--sub); white-space: nowrap; }
+  .pill.running { color: var(--accent); border-color: var(--accent); }
+  .pill.done { color: var(--ok); border-color: var(--ok); }
+  .pill.stopped, .pill.failed { color: var(--warn); border-color: var(--warn); }
+  .big { font-size: 26px; font-weight: 700; }
+  .sub { color: var(--sub); font-size: 13px; overflow-wrap: anywhere; }
+  .bar { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+  .bar > span { display: block; height: 100%; background: var(--accent); }
+  .bar.goal { position: relative; }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  button { font: inherit; border-radius: 9px; padding: 9px 14px; border: 1px solid var(--line); background: var(--soft); color: var(--ink); min-height: 40px; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.danger { color: var(--bad); }
+  button:disabled { opacity: 0.5; }
+  nav { position: fixed; bottom: 0; left: 0; right: 0; display: flex; background: var(--card); border-top: 1px solid var(--line);
+        padding-bottom: env(safe-area-inset-bottom); }
+  nav button { flex: 1; border: 0; border-radius: 0; background: none; color: var(--sub); min-height: 56px; font-size: 13px; }
+  nav button.on { color: var(--accent); font-weight: 650; }
+  input { font: inherit; width: 100%; padding: 10px; border-radius: 9px; border: 1px solid var(--line); background: var(--soft); color: var(--ink); }
+  label { display: grid; gap: 4px; font-size: 14px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  td, th { padding: 6px 4px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+  th { color: var(--sub); font-weight: 600; font-size: 12px; }
+  .spark { display: flex; gap: 3px; align-items: flex-end; height: 26px; }
+  .spark span { width: 8px; background: var(--accent); border-radius: 2px 2px 0 0; opacity: 0.8; }
+  .toast { position: fixed; left: 16px; right: 16px; bottom: calc(70px + env(safe-area-inset-bottom)); padding: 12px; border-radius: 10px;
+           background: var(--ink); color: var(--bg); display: none; z-index: 3; }
+  .empty { color: var(--sub); text-align: center; padding: 24px 8px; }
+  a { color: var(--accent); }
+  h2.section { font-size: 14px; color: var(--sub); text-transform: uppercase; letter-spacing: 0.04em; margin: 8px 2px 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>aGENtic Hub</h1>
+  <div class="meta" id="meta">Not connected</div>
+</header>
+<main id="main"></main>
+<nav id="nav" hidden>
+  <button data-tab="trainings" class="on">Training</button>
+  <button data-tab="models">Models</button>
+  <button data-tab="admin" id="tab-admin" hidden>Admin</button>
+  <button data-tab="settings">Phone</button>
+</nav>
+<div class="toast" id="toast"></div>
+<script>
+"use strict";
+// The phone side of aGENtic Hub's dashboard. Everything goes through GitHub:
+// the PC writes status.json to a private repo of yours; this page reads it and
+// writes signed commands there, with a token that reaches only that repo.
+const API = "https://api.github.com";
+const store = {
+  get(k) { try { return localStorage.getItem("agh." + k) || ""; } catch { return ""; } },
+  set(k, v) { try { localStorage.setItem("agh." + k, v); } catch { /* private mode: kept for this visit */ } },
+};
+let status = null, tab = "trainings", lastFetch = 0, busy = false;
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const pct = (v) => (v == null ? "–" : `${Math.round(v * 10) / 10}%`);
+
+function toast(text) {
+  const t = $("#toast"); t.textContent = text; t.style.display = "block";
+  clearTimeout(toast.timer); toast.timer = setTimeout(() => (t.style.display = "none"), 4000);
+}
+
+// A pairing link (#pair=<repo>) fills the repo; the code and the token are typed here once.
+(function readPairLink() {
+  const m = location.hash.match(/pair=([^&]+)/);
+  if (m) { store.set("repo", decodeURIComponent(m[1])); history.replaceState(null, "", location.pathname); }
+})();
+
+async function gh(path, init = {}) {
+  const res = await fetch(`${API}/${path}`, { ...init, headers: { Authorization: `Bearer ${store.get("token")}`,
+    Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28", ...(init.headers || {}) } });
+  return res;
+}
+
+async function load() {
+  if (!store.get("token") || !store.get("repo")) { tab = "settings"; render(); return; }
+  try {
+    const res = await gh(`repos/${store.get("repo")}/contents/status.json?t=${Date.now()}`, { headers: { Accept: "application/vnd.github.raw+json" } });
+    if (res.status === 401 || res.status === 403) throw new Error("GitHub refused the token - check it in Phone.");
+    if (res.status === 404) throw new Error("No status yet - is the dashboard on, on the PC?");
+    status = await res.json(); lastFetch = Date.now();
+  } catch (err) { toast(err.message || String(err)); }
+  render();
+}
+
+function freshness() {
+  if (!status) return ["off", "Not connected"];
+  const age = (Date.now() - Date.parse(status.at_utc || "")) / 1000;
+  if (!isFinite(age)) return ["late", `updated ${status.at}`];
+  const ago = age < 90 ? `${Math.max(0, Math.round(age))}s ago` : age < 5400 ? `${Math.round(age / 60)} min ago` : `${Math.round(age / 3600)} h ago`;
+  return [age < 900 ? "on" : age < 3600 ? "late" : "off", `${esc(status.host)} · updated ${ago}`];
+}
+
+// Commands: canonical JSON (keys sorted), signed with the pairing code.
+function canonical(v) {
+  if (Array.isArray(v)) return `[${v.map(canonical).join(",")}]`;
+  if (v && typeof v === "object") return `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${canonical(v[k])}`).join(",")}}`;
+  return JSON.stringify(v);
+}
+async function hmac(text) {
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(store.get("code").replace(/[-\s]/g, "").toUpperCase()),
+    { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(text));
+  return [...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+function b64(text) { return btoa(String.fromCharCode(...new TextEncoder().encode(text))); }
+
+async function command(action, target, args, label) {
+  if (busy) return;
+  busy = true; render();
+  try {
+    const id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+    const body = { id, action, target: String(target), args: args || {}, at: new Date().toISOString().slice(0, 19) + "Z" };
+    body.sig = await hmac(canonical(body));
+    const put = await gh(`repos/${store.get("repo")}/contents/commands/${id}.json`, { method: "PUT",
+      body: JSON.stringify({ message: `phone: ${action}`, content: b64(JSON.stringify(body)) }) });
+    if (!put.ok) throw new Error(`GitHub refused the command (${put.status}).`);
+    toast(`${label}: sent - the PC picks it up within 30 s`);
+    for (let i = 0; i < 24; i++) {
+      await new Promise((r) => setTimeout(r, 7500));
+      const res = await gh(`repos/${store.get("repo")}/contents/results/${id}.json`, { headers: { Accept: "application/vnd.github.raw+json" } });
+      if (res.ok) {
+        const result = await res.json();
+        toast(result.ok ? `${label}: done` : `${label}: ${result.error}`);
+        await load(); return;
+      }
+    }
+    toast(`${label}: no answer yet - is the PC on?`);
+  } catch (err) { toast(err.message || String(err)); }
+  finally { busy = false; render(); }
+}
+
+function spark(values) {
+  const v = (values || []).filter((x) => x != null);
+  if (v.length < 2) return "";
+  return `<div class="spark" aria-label="exams: ${v.map(pct).join(", ")}">${v.map((x) => `<span style="height:${Math.max(3, x * 0.26)}px" title="${pct(x)}"></span>`).join("")}</div>`;
+}
+
+function overview() {
+  // Both kinds of training on one screen: the deployable agents first, then the skills.
+  const ag = status?.agents || [], sk = status?.trainings || [];
+  const live = ag.filter((a) => a.running).length + sk.filter((t) => ["running", "queued"].includes(t.status)).length;
+  return `<div class="sub">${live} training now · ${ag.length} deployable agents · ${sk.length} skills</div>
+    <h2 class="section">Deployable agents</h2>${agents()}
+    <h2 class="section">Skills</h2>${trainings()}`;
+}
+
+function trainings() {
+  const list = status?.trainings || [];
+  if (!list.length) return `<div class="empty">No skill training on this PC.</div>`;
+  return list.map((t) => {
+    const running = ["running", "queued"].includes(t.status);
+    const idle = ["stopped", "finished", "failed"].includes(t.status);
+    const prog = t.progress ? `<div class="sub">Taking its exam: ${t.progress.done ?? "?"} of ${t.progress.total ?? "?"} tests${t.progress.accuracy != null ? ` · ${pct(t.progress.accuracy)} so far` : ""}</div>` : "";
+    return `<section class="card">
+      <div class="row"><span class="title">${esc(t.software)}</span><span class="pill ${esc(t.status)}">${esc(t.status)}</span></div>
+      <div class="row"><span class="big">${pct(t.exam)}</span><span class="sub">round ${t.round}${t.aim ? ` · aiming at ${t.aim}%` : ""}</span></div>
+      <div class="bar"><span style="width:${Math.min(100, t.exam || 0)}%"></span></div>
+      ${spark(t.exams)}${prog}
+      ${t.now ? `<div class="sub">${esc(t.now)}</div>` : ""}
+      ${!running && t.stop_reason ? `<div class="sub">Stopped: ${esc(t.stop_reason)}</div>` : ""}
+      <div class="actions">
+        ${running ? `<button class="danger" data-cmd="skill.stop" data-target="${esc(t.id)}" data-label="Stop ${esc(t.software)}">Stop</button>` : ""}
+        ${idle ? `<button data-cmd="skill.resume" data-target="${esc(t.id)}" data-label="Continue ${esc(t.software)}">Continue</button>` : ""}
+        ${t.status !== "approved" ? `<button class="primary" data-cmd="skill.aim" data-target="${esc(t.id)}" data-args='{"target":90}' data-label="${esc(t.software)} until 90%">Train until 90%</button>` : ""}
+        ${idle && t.status !== "failed" ? `<button data-cmd="skill.approve" data-confirm="Approve ${esc(t.software)}? Its other tries are deleted." data-target="${esc(t.id)}" data-label="Approve ${esc(t.software)}">Approve</button>` : ""}
+      </div></section>`;
+  }).join("");
+}
+
+function agents() {
+  const list = status?.agents || [];
+  if (!list.length) return `<div class="empty">No deployable-agent project on this PC.</div>`;
+  return list.map((a) => `<section class="card">
+      <div class="row"><span class="title">${esc(a.name)}</span><span class="pill ${a.running ? "running" : ""}">${a.running ? "training" : esc(a.status)}</span></div>
+      <div class="row"><span class="big">${pct(a.exam)}</span><span class="sub">exam on unseen documents${a.before != null ? ` · was ${pct(a.before)}` : ""} · target ${a.target ?? "–"}%</span></div>
+      <div class="bar"><span style="width:${Math.min(100, a.exam || 0)}%"></span></div>
+      ${spark((a.rounds || []).map((r) => r.headline))}
+      ${a.last ? `<div class="sub">${esc(a.last)}</div>` : ""}
+      <div class="actions">
+        ${a.running ? `<button class="danger" data-cmd="agent.stop" data-target="${a.id}" data-label="Stop ${esc(a.name)}">Stop</button>`
+          : `<button class="primary" data-cmd="agent.until" data-target="${a.id}" data-label="${esc(a.name)} until ${a.target ?? 90}%">Train until ${a.target ?? 90}%</button>
+             <button data-cmd="agent.more" data-target="${a.id}" data-label="${esc(a.name)}: one more cycle">One more cycle</button>`}
+      </div></section>`).join("");
+}
+
+function models() {
+  const list = status?.models || [];
+  return `<section class="card"><table><tr><th>Free model</th><th>Today</th><th></th></tr>${list.map((m) =>
+    `<tr><td>${esc(m.model)}</td><td>${m.today ?? "–"}</td><td>${m.blocked_for > 0 ? `<span class="pill stopped">resting ${Math.round(m.blocked_for / 3600)} h</span>` : ""}</td></tr>`).join("")}</table></section>`;
+}
+
+function admin() {
+  const m = status?.master;
+  if (!m) return `<div class="empty">The admin view is the master admin's.</div>`;
+  if (m.error) return `<div class="empty">${esc(m.error)}</div>`;
+  const act = m.activity || {}, counts = m.counts || {}, dl = m.downloads || {};
+  return `<section class="card"><div class="title">Admins - last ${act.days ?? 30} days</div>
+      ${(act.admins || []).length ? `<table><tr><th>Admin</th><th>Actions</th><th>Last</th></tr>${act.admins.map((a) =>
+        `<tr><td>${esc(a.admin)}<div class="sub">${Object.entries(a.kinds || {}).sort((x, y) => y[1] - x[1]).slice(0, 3).map(([k, n]) => `${esc(k)} ×${n}`).join(", ")}</div></td><td>${a.actions}</td><td class="sub">${esc((a.last || "").replace("T", " ").slice(0, 16))}</td></tr>`).join("")}</table>`
+        : `<div class="sub">${esc(act.error || "No admin activity reported yet.")}</div>`}
+    </section>
+    <section class="card"><div class="title">Recent admin actions</div>
+      ${(act.recent || []).slice(0, 12).map((e) => `<div class="row"><span>${esc(e.kind)} <span class="sub">${esc(e.on)}</span></span><span class="sub">${esc(e.github || e.who)} · ${esc(e.at.replace("T", " ").slice(5, 16))}</span></div>`).join("") || `<div class="sub">None yet.</div>`}
+    </section>
+    <section class="card"><div class="title">Apps in use (anonymous)</div>
+      ${counts.set_up ? `<div class="row"><span class="big">${counts.app_days ?? 0}</span><span class="sub">app-days in ${counts.days} days</span></div>
+        ${(counts.versions || []).slice(0, 6).map((v) => `<div class="row"><span>${esc(v.path.replace("/app/", ""))}</span><span>${v.count}</span></div>`).join("")}
+        <div class="sub">Features used</div>${(counts.features || []).slice(0, 8).map((f) => `<div class="row"><span>${esc(f.feature)}</span><span>${f.count}</span></div>`).join("")}`
+        : `<div class="sub">${esc(counts.why || "Not set up.")}</div>`}
+    </section>
+    <section class="card"><div class="title">Downloads</div>
+      <div class="row"><span class="big">${dl.total ?? 0}</span><span class="sub">all releases</span></div>
+      ${(dl.releases || []).slice(0, 6).map((r) => `<div class="row"><span>${esc(r.version)}</span><span>${r.downloads}</span></div>`).join("")}
+    </section>`;
+}
+
+function settings() {
+  const repo = store.get("repo");
+  return `<section class="card">
+      <div class="title">Connect to your PC</div>
+      <div class="sub">On the PC: Settings → Phone dashboard → Turn on. It shows the pairing code and the repository.</div>
+      <label>GitHub token<input id="f-token" type="password" autocomplete="off" value="${esc(store.get("token"))}" placeholder="github_pat_…"></label>
+      <div class="sub">Make one that reaches only the relay repository:
+        <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">new fine-grained token</a>
+        → Repository access: only <b>${esc(repo.split("/")[1] || "aGENticHub-remote")}</b> → Permissions: Contents <b>Read and write</b>.</div>
+      <label>Repository<input id="f-repo" value="${esc(repo)}" placeholder="you/aGENticHub-remote"></label>
+      <label>Pairing code<input id="f-code" value="${esc(store.get("code"))}" placeholder="XXXX-XXXX-XXXX-XXXX" autocapitalize="characters"></label>
+      <div class="actions"><button class="primary" id="f-save">Save and connect</button></div>
+      <div class="sub">Everything stays on this phone. Add this page to your home screen to use it as an app.</div>
+    </section>`;
+}
+
+function render() {
+  const [state, text] = freshness();
+  $("#meta").innerHTML = `<span class="dot ${state}"></span>${text}${status?.version ? ` · ${esc(status.version)}` : ""}`;
+  $("#nav").hidden = !store.get("token");
+  $("#tab-admin").hidden = !status?.master;
+  document.querySelectorAll("nav button").forEach((b) => b.classList.toggle("on", b.dataset.tab === tab));
+  $("#main").innerHTML = { trainings: overview, models, admin, settings }[tab]();
+  document.querySelectorAll("[data-cmd]").forEach((b) => {
+    b.disabled = busy;
+    b.onclick = () => {
+      if (b.dataset.confirm && !confirm(b.dataset.confirm)) return;
+      command(b.dataset.cmd, b.dataset.target, b.dataset.args ? JSON.parse(b.dataset.args) : {}, b.dataset.label);
+    };
+  });
+  const save = $("#f-save");
+  if (save) save.onclick = async () => {
+    store.set("token", $("#f-token").value.trim()); store.set("code", $("#f-code").value.trim());
+    let repo = $("#f-repo").value.trim();
+    if (!repo && store.get("token")) {
+      const me = await gh("user"); if (me.ok) repo = `${(await me.json()).login}/aGENticHub-remote`;
+    }
+    store.set("repo", repo); tab = "trainings"; await load();
+  };
+}
+
+document.querySelectorAll("nav button").forEach((b) => (b.onclick = () => { tab = b.dataset.tab; render(); }));
+document.addEventListener("visibilitychange", () => { if (!document.hidden && Date.now() - lastFetch > 20000) load(); });
+setInterval(() => { if (!document.hidden) load(); }, 60000);
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+load();
+</script>
+</body>
+</html>
