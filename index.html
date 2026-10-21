@@ -60,6 +60,21 @@
   .empty { color: var(--sub); text-align: center; padding: 24px 8px; }
   a { color: var(--accent); }
   h2.section { font-size: 14px; color: var(--sub); text-transform: uppercase; letter-spacing: 0.04em; margin: 8px 2px 0; }
+  .tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .tile { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px; text-align: center; }
+  .tile b { display: block; font-size: 24px; }
+  .tile span { color: var(--sub); font-size: 12px; }
+  .alert { border-left: 4px solid var(--warn); }
+  .alert.bad { border-left-color: var(--bad); }
+  .event { display: grid; grid-template-columns: 56px 1fr; gap: 8px; font-size: 13px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+  .event:last-child { border-bottom: 0; }
+  .event time { color: var(--sub); font-variant-numeric: tabular-nums; }
+  .event em { font-style: normal; color: var(--accent); font-weight: 600; }
+  .budget { position: relative; height: 12px; border-radius: 6px; background: var(--soft); overflow: hidden; border: 1px solid var(--line); }
+  .budget > span { position: absolute; top: 0; bottom: 0; left: 0; background: var(--accent); opacity: .8; }
+  .budget > i { position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--ink); opacity: .45; }
+  .kv { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; font-size: 13px; margin: 0; }
+  .kv dt { color: var(--sub); } .kv dd { margin: 0; overflow-wrap: anywhere; }
 </style>
 </head>
 <body>
@@ -69,8 +84,9 @@
 </header>
 <main id="main"></main>
 <nav id="nav" hidden>
-  <button data-tab="trainings" class="on">Training</button>
-  <button data-tab="models">Models</button>
+  <button data-tab="now" class="on">Now</button>
+  <button data-tab="trainings">Training</button>
+  <button data-tab="models">Budget</button>
   <button data-tab="admin" id="tab-admin" hidden>Admin</button>
   <button data-tab="settings">Phone</button>
 </nav>
@@ -85,7 +101,7 @@ const store = {
   get(k) { try { return localStorage.getItem("agh." + k) || ""; } catch { return ""; } },
   set(k, v) { try { localStorage.setItem("agh." + k, v); } catch { /* private mode: kept for this visit */ } },
 };
-let status = null, tab = "trainings", lastFetch = 0, busy = false;
+let status = null, tab = "now", lastFetch = 0, busy = false;
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const pct = (v) => (v == null ? "–" : `${Math.round(v * 10) / 10}%`);
@@ -171,6 +187,58 @@ function spark(values) {
   return `<div class="spark" aria-label="exams: ${v.map(pct).join(", ")}">${v.map((x) => `<span style="height:${Math.max(3, x * 0.26)}px" title="${pct(x)}"></span>`).join("")}</div>`;
 }
 
+
+const short = (m) => String(m || "").split("/").pop();
+
+function now() {
+  // The broader picture: what needs you, what runs, each free model's day, and the latest events from everything.
+  if (!status) return `<div class="empty">No status yet.</div>`;
+  const ag = status.agents || [], sk = status.trainings || [], jobs = status.jobs || [], alerts = status.alerts || [];
+  const live = ag.filter((a) => a.running).length + sk.filter((t) => ["running", "queued"].includes(t.status)).length;
+  const approved = sk.filter((t) => t.status === "approved").length;
+  const tiles = `<div class="tiles">
+      <div class="tile"><b>${live}</b><span>training now</span></div>
+      <div class="tile"><b>${jobs.length}</b><span>background jobs</span></div>
+      <div class="tile"><b style="color:${alerts.length ? "var(--warn)" : "var(--ok)"}">${alerts.length}</b><span>need you</span></div>
+    </div>`;
+  const alertCards = alerts.map((a) => `<section class="card alert ${a.level === "bad" ? "bad" : ""}"><div>${esc(a.text)}</div></section>`).join("");
+  const running = [
+    ...ag.filter((a) => a.running).map((a) => ({ name: a.name, kind: "agent", score: a.exam, target: a.target,
+      what: a.last, model: a.model, extra: a.recipe ? `reviews: ${a.recipe}` : "" })),
+    ...sk.filter((t) => ["running", "queued"].includes(t.status)).map((t) => ({ name: t.software, kind: "skill",
+      score: t.exam, target: t.aim, what: t.activity || t.now, model: t.worker,
+      extra: t.progress ? `exam ${t.progress.done ?? "?"}/${t.progress.total ?? "?"}` : `round ${t.round} · ${t.hours ?? 0} h` })),
+  ];
+  const runningCards = running.map((r) => `<section class="card">
+      <div class="row"><span class="title">${esc(r.name)}</span><span class="pill running">${r.kind}</span></div>
+      <div class="row"><span class="big">${pct(r.score)}</span><span class="sub">${r.target ? `target ${r.target}%` : ""}${r.extra ? ` · ${esc(r.extra)}` : ""}</span></div>
+      <div class="bar"><span style="width:${Math.min(100, r.score || 0)}%"></span></div>
+      ${r.model ? `<div class="sub">model: ${esc(short(r.model))}</div>` : ""}
+      ${r.what ? `<div class="sub">${esc(r.what)}</div>` : ""}</section>`).join("")
+    || `<div class="empty">Nothing is training right now · ${approved} skills approved</div>`;
+  const jobCards = jobs.map((j) => `<section class="card"><div class="row"><span class="title">${esc(j.kind)}</span><span class="sub">${esc(j.on)}</span></div>
+      <div class="sub">${esc(j.now)}</div>${j.done && j.done.length ? `<div class="sub">done: ${j.done.map(esc).join(", ")}</div>` : ""}</section>`).join("");
+  const tight = (status.budget || []).filter((b) => b.limit).sort((x, y) => y.used / y.limit - x.used / x.limit).slice(0, 4);
+  const events = (status.events || []).slice(0, 25).map((e) =>
+    `<div class="event"><time>${esc(String(e.at).slice(0, 5))}</time><span><em>${esc(e.from)}</em> ${esc(e.what)}</span></div>`).join("");
+  return `${tiles}${alertCards}
+    <h2 class="section">Running</h2>${runningCards}${jobCards}
+    ${tight.length ? `<h2 class="section">Free allowances today</h2><section class="card">${tight.map(budgetRow).join("")}
+      <div class="sub">The marks: where the arena, checking and training stop on each model's day. More in Budget.</div></section>` : ""}
+    <h2 class="section">Latest</h2><section class="card">${events || `<div class="sub">No events yet.</div>`}</section>
+    <div class="sub" style="text-align:center">The app on ${esc(status.host)} has run ${status.uptime_h ?? "?"} h since it last started.</div>`;
+}
+
+function budgetRow(b) {
+  const shares = (status && status.shares) || { arena: 0.3, verify: 0.45, training: 0.75 };
+  const used = Math.min(100, (100 * b.used) / Math.max(1, b.limit));
+  return `<div style="display:grid;gap:4px;margin-bottom:8px">
+      <div class="row"><span>${esc(b.scope)}${b.assumed ? ' <span class="sub">(assumed day)</span>' : ""}</span><span class="sub">${b.used} of ${b.limit}</span></div>
+      <div class="budget" role="img" aria-label="${b.used} of ${b.limit} calls used today"><span style="width:${used}%"></span>
+        ${["arena", "verify", "training"].map((k) => `<i style="left:${shares[k] * 100}%" title="${k} stops here"></i>`).join("")}</div>
+      <div class="sub">left for training ${b.left.training ?? "–"} · checking ${b.left.verify ?? "–"} · arena ${b.left.arena ?? "–"}</div></div>`;
+}
+
 function overview() {
   // Both kinds of training on one screen: the deployable agents first, then the skills.
   const ag = status?.agents || [], sk = status?.trainings || [];
@@ -192,7 +260,11 @@ function trainings() {
       <div class="row"><span class="big">${pct(t.exam)}</span><span class="sub">round ${t.round}${t.aim ? ` · aiming at ${t.aim}%` : ""}</span></div>
       <div class="bar"><span style="width:${Math.min(100, t.exam || 0)}%"></span></div>
       ${spark(t.exams)}${prog}
-      ${t.now ? `<div class="sub">${esc(t.now)}</div>` : ""}
+      <dl class="kv">${t.worker ? `<dt>worker</dt><dd>${esc(short(t.worker))}</dd>` : ""}${t.supervisor ? `<dt>grader</dt><dd>${esc(short(t.supervisor))}</dd>` : ""}
+        ${t.best != null ? `<dt>best exam</dt><dd>${pct(t.best)} (kept)</dd>` : ""}${t.knowledge ? `<dt>documentation</dt><dd>${Number(t.knowledge).toLocaleString()} passages</dd>` : ""}
+        ${t.hours ? `<dt>trained</dt><dd>${t.hours} h</dd>` : ""}</dl>
+      ${(t.proof || []).length ? `<div class="sub">last lessons tested: ${t.proof.map((r) => `${Math.round(r.before)}→${Math.round(r.after)}${r.guard ? " (guard)" : ""}`).join(", ")}</div>` : ""}
+      ${t.activity || t.now ? `<div class="sub">${esc(t.activity || t.now)}</div>` : ""}
       ${!running && t.stop_reason ? `<div class="sub">Stopped: ${esc(t.stop_reason)}</div>` : ""}
       <div class="actions">
         ${running ? `<button class="danger" data-cmd="skill.stop" data-target="${esc(t.id)}" data-label="Stop ${esc(t.software)}">Stop</button>` : ""}
@@ -211,6 +283,9 @@ function agents() {
       <div class="row"><span class="big">${pct(a.exam)}</span><span class="sub">exam on unseen documents${a.before != null ? ` · was ${pct(a.before)}` : ""} · target ${a.target ?? "–"}%</span></div>
       <div class="bar"><span style="width:${Math.min(100, a.exam || 0)}%"></span></div>
       ${spark((a.rounds || []).map((r) => r.headline))}
+      <dl class="kv">${a.model ? `<dt>reviewer</dt><dd>${esc(short(a.model))}</dd>` : ""}${a.recipe ? `<dt>line-up</dt><dd>${esc(a.recipe)}</dd>` : ""}
+        ${a.real_key ? `<dt>real files</dt><dd>${a.real_key.settled} settled · real ${pct(a.real_key.real.accuracy)} · benchmark ${pct(a.real_key.benchmark.accuracy)}</dd>` : ""}
+        ${a.rejected ? `<dt>lessons refused</dt><dd>${a.rejected} (broke something or fixed nothing)</dd>` : ""}</dl>
       ${a.last ? `<div class="sub">${esc(a.last)}</div>` : ""}
       <div class="actions">
         ${a.running ? `<button class="danger" data-cmd="agent.stop" data-target="${a.id}" data-label="Stop ${esc(a.name)}">Stop</button>`
@@ -221,7 +296,16 @@ function agents() {
 
 function models() {
   const list = status?.models || [];
-  return `<section class="card"><table><tr><th>Free model</th><th>Today</th><th></th></tr>${list.map((m) =>
+  const shares = status?.shares || {};
+  const budget = (status?.budget || []).filter((b) => b.limit);
+  const docs = status?.documentation || [];
+  return `<section class="card"><div class="title">Each free model's day</div>
+      <div class="sub">Your chats may use all of it; a training's own work stops at ${Math.round((shares.training || 0.75) * 100)}%,
+      checking it (referee, judge, vote, proving lessons) at ${Math.round((shares.verify || 0.45) * 100)}%, the arena at ${Math.round((shares.arena || 0.3) * 100)}%.</div>
+      ${budget.map(budgetRow).join("") || `<div class="sub">Nothing used yet today.</div>`}</section>
+    ${docs.length ? `<section class="card"><div class="title">Documentation the agents search</div><table><tr><th>Program</th><th>Pages</th><th>Passages</th></tr>
+      ${docs.filter((d) => d.chunks).map((d) => `<tr><td>${esc(d.app)}${d.partial ? ' <span class="sub">(filling in)</span>' : ""}</td><td>${d.pages.toLocaleString()}</td><td>${d.chunks.toLocaleString()}</td></tr>`).join("")}</table></section>` : ""}
+    <section class="card"><table><tr><th>Free model</th><th>Today</th><th></th></tr>${list.map((m) =>
     `<tr><td>${esc(m.model)}</td><td>${m.today ?? "–"}</td><td>${m.blocked_for > 0 ? `<span class="pill stopped">resting ${Math.round(m.blocked_for / 3600)} h</span>` : ""}</td></tr>`).join("")}</table></section>`;
 }
 
@@ -272,7 +356,7 @@ function render() {
   $("#nav").hidden = !store.get("token");
   $("#tab-admin").hidden = !status?.master;
   document.querySelectorAll("nav button").forEach((b) => b.classList.toggle("on", b.dataset.tab === tab));
-  $("#main").innerHTML = { trainings: overview, models, admin, settings }[tab]();
+  $("#main").innerHTML = { now, trainings: overview, models, admin, settings }[tab]();
   document.querySelectorAll("[data-cmd]").forEach((b) => {
     b.disabled = busy;
     b.onclick = () => {
@@ -287,7 +371,7 @@ function render() {
     if (!repo && store.get("token")) {
       const me = await gh("user"); if (me.ok) repo = `${(await me.json()).login}/aGENticHub-remote`;
     }
-    store.set("repo", repo); tab = "trainings"; await load();
+    store.set("repo", repo); tab = "now"; await load();
   };
 }
 
