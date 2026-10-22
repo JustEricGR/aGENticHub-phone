@@ -399,7 +399,36 @@ function blender() {
   return out + spotChecks();
 }
 
+const ENGINE = { workshop: "skill", v2: "skill · known answers", agent: "deployable agent" };
+const ACT = { stop: "Stop", resume: "Continue", until: "Train until target", approve: "Approve", start: "Start", more: "One more cycle" };
+
+function unified() {
+  // Every training - program skills and deployable agents - with the same card, as the PC's Training screen shows them.
+  const list = status?.unified || [];
+  const live = list.filter((t) => t.running).length;
+  return `<div class="sub">${live} training now · ${list.length} trainings, measured the same way: requirements met on an exam never practised</div>` +
+    list.map((t) => `<section class="card">
+      <div class="row"><span class="title">${esc(t.name)}</span><span class="pill ${t.running ? "running" : esc(t.status)}">${t.running ? "training" : esc(t.status || "–")}</span></div>
+      <div class="row"><span class="big">${pct(t.score)}</span><span class="sub">${esc(ENGINE[t.engine] || t.engine)}${t.target != null ? ` · target ${t.target}%` : ""}${t.fully_right != null ? ` · ${pct(t.fully_right)} fully right` : ""}</span></div>
+      <div class="sub">${esc(t.score_label || "")}</div>
+      <div class="bar"><span style="width:${Math.min(100, t.score || 0)}%"></span></div>
+      ${spark(t.trend)}
+      ${(t.capabilities || []).length ? `<details data-key="caps-${esc(t.key)}"${opened.has(`caps-${t.key}`) ? " open" : ""}><summary>By capability (${t.capabilities.length})</summary>
+        ${t.capabilities.map((c) => `<div class="area"><span>${esc(c.name)}</span><span class="sub">${esc(c.detail || pct(c.score))}</span>
+          <div class="bar"><span style="width:${Math.min(100, c.score || 0)}%"></span></div></div>`).join("")}</details>` : ""}
+      ${t.model ? `<div class="sub">model: ${esc(short(t.model))}</div>` : ""}
+      ${t.now ? `<div class="sub">${esc(t.now)}</div>` : ""}
+      ${!t.running && t.stop_reason ? `<div class="sub">Stopped: ${esc(t.stop_reason)}</div>` : ""}
+      ${logBox(`log-${t.key}`, t.log)}
+      <div class="actions">${(t.actions || []).map((x) => `<button class="${x === "stop" ? "danger" : x === "until" ? "primary" : ""}" data-cmd="training.act"
+          data-target="${esc(t.key)}" data-args='${esc(JSON.stringify({ action: x, target: x === "until" ? (t.target || 90) : null }))}'
+          ${x === "approve" ? `data-confirm="Approve ${esc(t.name)}? Its other tries are deleted."` : ""}
+          data-label="${esc(t.name)}: ${esc(ACT[x] || x)}">${x === "until" ? `Train until ${t.target || 90}%` : esc(ACT[x] || x)}</button>`).join("")}</div>
+    </section>`).join("");
+}
+
 function overview() {
+  if ((status?.unified || []).length) return unified();
   // Both kinds of training on one screen: the deployable agents first, then the skills.
   const ag = status?.agents || [], sk = status?.trainings || [];
   const live = ag.filter((a) => a.running).length + sk.filter((t) => ["running", "queued"].includes(t.status)).length;
