@@ -245,7 +245,12 @@ function now() {
       <div class="tile"><b>${jobs.length}</b><span>background jobs</span></div>
       <div class="tile"><b style="color:${alerts.length ? "var(--warn)" : "var(--ok)"}">${alerts.length}</b><span>need you</span></div>
     </div>`;
-  const alertCards = alerts.map((a) => `<section class="card alert ${a.level === "bad" ? "bad" : ""}"><div>${esc(a.text)}</div></section>`).join("");
+  const quiet = (Date.now() - Date.parse(status.at_utc || "")) / 60000;
+  // The PC writes every 2-10 minutes while it is on; a long silence is the PC asleep, off or offline - never
+  // this phone's network (everything goes through GitHub). What is below is from when it last wrote.
+  const silence = quiet > 20 ? `<section class="card alert bad"><div><b>The PC has sent nothing for ${quiet < 120 ? Math.round(quiet) + " min" : Math.round(quiet / 60) + " h"}.</b>
+      It is asleep, off or without internet - training stops with it. Below is what it said last, at ${esc(String(status.at).slice(11, 16))}.</div></section>` : "";
+  const alertCards = silence + alerts.map((a) => `<section class="card alert ${a.level === "bad" ? "bad" : ""}"><div>${esc(a.text)}</div></section>`).join("");
   const running = [
     ...ag.filter((a) => a.running).map((a) => ({ name: a.name, kind: "agent", score: a.exam, target: a.target,
       what: a.last, model: a.model, extra: a.recipe ? `reviews: ${a.recipe}` : "" })),
