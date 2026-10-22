@@ -26,7 +26,8 @@
   header .meta { color: var(--sub); font-size: 13px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; background: var(--sub); }
   .dot.on { background: var(--ok); } .dot.late { background: var(--warn); } .dot.off { background: var(--bad); }
-  main { padding: 12px 16px; display: grid; gap: 10px; max-width: 720px; margin: 0 auto; }
+  main { padding: 12px 16px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; max-width: 720px; margin: 0 auto; }
+  main > *, .card > *, .event > * { min-width: 0; overflow-wrap: anywhere; }
   .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px; display: grid; gap: 8px; }
   .row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; }
   .title { font-weight: 650; overflow-wrap: anywhere; }
@@ -66,7 +67,7 @@
   .tile span { color: var(--sub); font-size: 12px; }
   .alert { border-left: 4px solid var(--warn); }
   .alert.bad { border-left-color: var(--bad); }
-  .event { display: grid; grid-template-columns: 56px 1fr; gap: 8px; font-size: 13px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+  .event { display: grid; grid-template-columns: 74px 1fr; gap: 8px; font-size: 13px; padding: 6px 0; border-bottom: 1px solid var(--line); }
   .event:last-child { border-bottom: 0; }
   .event time { color: var(--sub); font-variant-numeric: tabular-nums; }
   .event em { font-style: normal; color: var(--accent); font-weight: 600; }
@@ -75,6 +76,21 @@
   .budget > i { position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--ink); opacity: .45; }
   .kv { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; font-size: 13px; margin: 0; }
   .kv dt { color: var(--sub); } .kv dd { margin: 0; overflow-wrap: anywhere; }
+  .pics { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .pics img { width: 100%; aspect-ratio: 4 / 3; object-fit: contain; background: #111; border-radius: 8px; }
+  .tiers { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; text-align: center; }
+  .tiers b { display: block; font-size: 18px; }
+  .tiers span { color: var(--sub); font-size: 12px; }
+  .tiles.four { grid-template-columns: repeat(4, 1fr); }
+  .tiles.four .tile b { font-size: 18px; }
+  details > summary { color: var(--accent); font-size: 13px; cursor: pointer; padding: 4px 0; }
+  .log { font: 12px/1.4 ui-monospace, "Cascadia Mono", Consolas, monospace; color: var(--sub); white-space: pre-wrap;
+         overflow-wrap: anywhere; background: var(--soft); border-radius: 8px; padding: 8px; margin-top: 6px; }
+  .area { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; font-size: 13px; margin-bottom: 6px; }
+  .area .bar { grid-column: 1 / -1; }
+  .stack { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: var(--soft); grid-column: 1 / -1; gap: 2px; }
+  .stack > span:nth-child(1) { background: var(--ok); } .stack > span:nth-child(2) { background: var(--warn); opacity: .7; }
+  .ok { color: var(--ok); } .warn { color: var(--warn); } .bad { color: var(--bad); }
 </style>
 </head>
 <body>
@@ -86,7 +102,8 @@
 <nav id="nav" hidden>
   <button data-tab="now" class="on">Now</button>
   <button data-tab="trainings">Training</button>
-  <button data-tab="models">Budget</button>
+  <button data-tab="blender">Blender</button>
+  <button data-tab="models">Models</button>
   <button data-tab="admin" id="tab-admin" hidden>Admin</button>
   <button data-tab="settings">Phone</button>
 </nav>
@@ -101,7 +118,8 @@ const store = {
   get(k) { try { return localStorage.getItem("agh." + k) || ""; } catch { return ""; } },
   set(k, v) { try { localStorage.setItem("agh." + k, v); } catch { /* private mode: kept for this visit */ } },
 };
-let status = null, tab = "now", lastFetch = 0, busy = false;
+let status = null, tab = store.get("tab") || "now", lastFetch = 0, busy = false;
+const opened = new Set();                         // the <details> left open survive the minute's refresh
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const pct = (v) => (v == null ? "–" : `${Math.round(v * 10) / 10}%`);
@@ -189,12 +207,38 @@ function spark(values) {
 
 
 const short = (m) => String(m || "").split("/").pop();
+const today = () => { const d = new Date(); return `${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+// "10-22 08:25:36" -> "08:25" today, "10-21 17:18" before.
+const when = (at) => { const t = String(at || ""); return t.length >= 14 ? (t.slice(0, 5) === today() ? t.slice(6, 11) : t.slice(0, 11)) : t.slice(0, 5); };
+const ago = (iso) => { const s = (Date.now() - Date.parse(iso)) / 1000; return !isFinite(s) ? "" : s < 3600 ? `${Math.max(1, Math.round(s / 60))} min ago` : s < 86400 ? `${Math.round(s / 3600)} h ago` : `${Math.round(s / 86400)} d ago`; };
+
+function logBox(key, lines, label) {
+  // A card's own log, newest last, folded until tapped.
+  if (!(lines || []).length) return "";
+  return `<details data-key="${esc(key)}"${opened.has(key) ? " open" : ""}><summary>${esc(label || "What it did lately")} (${lines.length})</summary>
+    <div class="log">${lines.map(esc).join("\n")}</div></details>`;
+}
+
+function pcTiles() {
+  // The PC's load: is it straining while everything trains?
+  const pc = status?.pc;
+  if (!pc || pc.cpu == null) return "";
+  const ram = pc.ram_total ? Math.round((100 * pc.ram_used) / pc.ram_total) : null;
+  const tone = (v, warn, bad) => (v == null ? "" : v >= bad ? "bad" : v >= warn ? "warn" : "ok");
+  return `<div class="tiles four">
+      <div class="tile"><b class="${tone(pc.cpu, 70, 90)}">${pc.cpu}%</b><span>processor</span></div>
+      <div class="tile"><b class="${tone(ram, 80, 92)}">${ram ?? "–"}%</b><span>memory · ${pc.ram_used}/${pc.ram_total} GB</span></div>
+      <div class="tile"><b>${pc.blenders}</b><span>Blender${pc.blenders === 1 ? "" : "s"} · ${pc.blender_gb} GB</span></div>
+      <div class="tile"><b>${pc.disk_free_gb ?? "–"}</b><span>GB free</span></div>
+    </div>`;
+}
 
 function now() {
   // The broader picture: what needs you, what runs, each free model's day, and the latest events from everything.
   if (!status) return `<div class="empty">No status yet.</div>`;
   const ag = status.agents || [], sk = status.trainings || [], jobs = status.jobs || [], alerts = status.alerts || [];
-  const live = ag.filter((a) => a.running).length + sk.filter((t) => ["running", "queued"].includes(t.status)).length;
+  const live = ag.filter((a) => a.running).length + sk.filter((t) => ["running", "queued"].includes(t.status)).length
+    + (status.v2?.status === "running" ? 1 : 0);
   const approved = sk.filter((t) => t.status === "approved").length;
   const tiles = `<div class="tiles">
       <div class="tile"><b>${live}</b><span>training now</span></div>
@@ -215,14 +259,14 @@ function now() {
       <div class="bar"><span style="width:${Math.min(100, r.score || 0)}%"></span></div>
       ${r.model ? `<div class="sub">model: ${esc(short(r.model))}</div>` : ""}
       ${r.what ? `<div class="sub">${esc(r.what)}</div>` : ""}</section>`).join("")
-    || `<div class="empty">Nothing is training right now · ${approved} skills approved</div>`;
+    || (status.v2?.status === "running" ? "" : `<div class="empty">Nothing is training right now · ${approved} skills approved</div>`);
   const jobCards = jobs.map((j) => `<section class="card"><div class="row"><span class="title">${esc(j.kind)}</span><span class="sub">${esc(j.on)}</span></div>
       <div class="sub">${esc(j.now)}</div>${j.done && j.done.length ? `<div class="sub">done: ${j.done.map(esc).join(", ")}</div>` : ""}</section>`).join("");
   const tight = (status.budget || []).filter((b) => b.limit).sort((x, y) => y.used / y.limit - x.used / x.limit).slice(0, 4);
   const events = (status.events || []).slice(0, 25).map((e) =>
-    `<div class="event"><time>${esc(String(e.at).slice(0, 5))}</time><span><em>${esc(e.from)}</em> ${esc(e.what)}</span></div>`).join("");
-  return `${tiles}${alertCards}
-    <h2 class="section">Running</h2>${runningCards}${jobCards}
+    `<div class="event"><time>${esc(when(e.at))}</time><span><em>${esc(e.from)}</em> ${esc(e.what)}</span></div>`).join("");
+  return `${tiles}${alertCards}${pcTiles()}
+    <h2 class="section">Running</h2>${runningCards}${jobCards}${v2Card(true)}
     ${tight.length ? `<h2 class="section">Free allowances today</h2><section class="card">${tight.map(budgetRow).join("")}
       <div class="sub">The marks: where the arena, checking and training stop on each model's day. More in Budget.</div></section>` : ""}
     <h2 class="section">Latest</h2><section class="card">${events || `<div class="sub">No events yet.</div>`}</section>
@@ -239,13 +283,125 @@ function budgetRow(b) {
       <div class="sub">left for training ${b.left.training ?? "–"} · checking ${b.left.verify ?? "–"} · arena ${b.left.arena ?? "–"}</div></div>`;
 }
 
+
+function v2Card(compact) {
+  // Blender training v2: the mastery by tier, today's plan, procedures, exams - and the week's spot checks.
+  const v = status?.v2;
+  if (!v) return "";
+  const tiers = ["core", "common", "specialist"].map((k) =>
+    `<div><b>${v.tiers?.[k]?.mastered ?? 0}/${v.tiers?.[k]?.techniques ?? 0}</b><span>${k}</span></div>`).join("");
+  const exams = (v.exams || []).map((e) => `${esc(e.tier)} ${pct(e.accuracy)}`).join(" · ");
+  const running = v.status === "running";
+  return `<section class="card">
+      <div class="row"><span class="title">Blender v2</span><span class="pill ${running ? "running" : ""}">${esc(v.status)}</span></div>
+      <div class="sub">techniques mastered by tier</div><div class="tiers">${tiers}</div>
+      <dl class="kv"><dt>today</dt><dd>${(v.plan || []).length} technique-levels${v.model ? ` · ${esc(short(v.model))}` : ""}</dd>
+        <dt>procedures</dt><dd>${v.procedures} proven</dd><dt>attempts</dt><dd>${v.totals?.attempts ?? 0} · ${v.totals?.verified ?? 0} fully right</dd>
+        ${exams ? `<dt>exams</dt><dd>${exams}</dd>` : ""}${v.flagged ? `<dt>flagged</dt><dd>${v.flagged} stuck</dd>` : ""}</dl>
+      ${v.now ? `<div class="sub">${esc(v.now)}</div>` : ""}
+      ${compact ? "" : `<div class="actions">${running
+        ? `<button class="danger" data-cmd="v2.stop" data-target="blender" data-label="Stop Blender v2">Stop</button>`
+        : `<button class="primary" data-cmd="v2.start" data-target="blender" data-label="Start Blender v2">Start</button>`}</div>`}
+      ${v.spot?.pending ? `<div class="sub">${v.spot.pending} result(s) to spot-check this week - below.</div>` : ""}
+    </section>`;
+}
+
+const spotNotes = {};
+function spotChecks() {
+  const s = status?.v2?.spot;
+  if (!s || !(s.items || []).length) return "";
+  const a = s.agreement || {};
+  const cards = s.items.map((i) => `<section class="card">
+      <div class="row"><span class="title">${esc(i.title)}</span><span class="pill">${i.level === "drill" ? "drill" : "start → goal"}</span></div>
+      <div class="pics"><img data-spot="${esc(i.id)}-render" alt="the result"><img data-spot="${esc(i.id)}-goal" alt="the goal"></div>
+      <div class="sub">${esc(i.instruction)}</div>
+      <div class="sub">checks ${pct(i.score)}${i.verified ? " · all met" : ""}${i.quality != null ? ` · critic ${pct(i.quality)}` : ""}</div>
+      ${(i.unmet || []).length ? `<div class="sub">unmet: ${i.unmet.map(esc).join("; ")}</div>` : ""}
+      ${i.grade ? `<div class="pill done">you said: ${esc(i.grade)}</div>` : `
+        <input data-note="${esc(i.id)}" placeholder="a note (for wrong)" value="${esc(spotNotes[i.id] || "")}">
+        <div class="actions">
+          <button class="primary" data-spot-grade="right" data-id="${esc(i.id)}">Right</button>
+          <button class="danger" data-spot-grade="wrong" data-id="${esc(i.id)}">Wrong</button>
+          <button data-spot-grade="skip" data-id="${esc(i.id)}">Skip</button>
+        </div>`}
+    </section>`).join("");
+  return `<h2 class="section">Spot checks · ${esc(s.week)}</h2>
+    <div class="sub">critic agrees with you ${a.critic_agreement != null ? Math.round(a.critic_agreement * 100) + "%" : "–"} · checks agree ${a.code_agreement != null ? Math.round(a.code_agreement * 100) + "%" : "–"}</div>${cards}`;
+}
+
+const spotImages = {};
+async function loadSpotImages() {
+  // The renders come from the private relay with this phone's own token; shown as local blobs.
+  for (const img of document.querySelectorAll("img[data-spot]")) {
+    const key = img.dataset.spot;
+    if (spotImages[key] === undefined) {
+      spotImages[key] = null;
+      try {
+        const res = await gh(`repos/${store.get("repo")}/contents/spot/${key}.jpg`, { headers: { Accept: "application/vnd.github.raw+json" } });
+        spotImages[key] = res.ok ? URL.createObjectURL(await res.blob()) : "";
+      } catch { spotImages[key] = ""; }
+    }
+    if (spotImages[key]) img.src = spotImages[key]; else if (spotImages[key] === "") img.alt = "picture not sent yet";
+  }
+}
+
+function blender() {
+  // Everything about Blender v2 on one screen: the mastery, what it tried lately, its procedures, where it is
+  // stuck, its own log, the atlas of the program it trains on, and the week's spot checks.
+  const v = status?.v2, at = status?.atlas;
+  if (!v && !at) return `<div class="empty">Blender v2 has not started on this PC.</div>`;
+  let out = v ? v2Card(false) : "";
+  if (v && (v.areas || []).length) {
+    out += `<h2 class="section">Mastery by area</h2><section class="card">${v.areas.map((a) => `<div class="area">
+        <span>${esc(a.area)}</span><span class="sub">${a.mastered}/${a.techniques} mastered · ${a.attempts} tries</span>
+        <div class="bar"><span style="width:${a.techniques ? (100 * a.mastered) / a.techniques : 0}%;background:var(--ok)"></span></div></div>`).join("")}
+      <div class="sub">A technique counts as mastered at 80% over its last 6 drills.</div></section>`;
+  }
+  if (v && (v.recent || []).length) {
+    out += `<h2 class="section">Latest attempts</h2><section class="card">${v.recent.map((r) => `<div class="event">
+        <time>${esc(when(String(r.at || "").slice(5, 10) + " " + String(r.at || "").slice(11, 19)))}</time>
+        <span><em>${esc(r.title)}</em> <span class="sub">${r.level === "drill" ? "drill" : "start → goal"}</span>
+          <b class="${r.verified ? "ok" : (r.score || 0) >= 50 ? "warn" : "bad"}"> ${pct(r.score)}</b>
+          <span class="sub">${r.tries} ${r.tries === 1 ? "try" : "tries"}${r.quality != null ? ` · critic ${pct(r.quality)}` : ""} · ${esc(short(r.model))}</span>
+          ${!r.verified && (r.unmet || []).length ? `<div class="sub">unmet: ${r.unmet.map(esc).join("; ")}</div>` : ""}</span></div>`).join("")}</section>`;
+  }
+  if (v && (v.procedure_list || []).length) {
+    out += `<h2 class="section">Procedures it proved</h2><section class="card"><table><tr><th>Procedure</th><th>Passes</th><th>Used</th></tr>
+      ${v.procedure_list.map((p) => `<tr><td>${esc(p.name)}()<div class="sub">${esc(p.technique)}</div></td><td>${Math.round((p.pass_rate || 0) * 100)}%</td>
+        <td>${p.uses}${p.fails ? ` <span class="bad">(${p.fails} failed)</span>` : ""}</td></tr>`).join("")}</table>
+      <div class="sub">Functions written from passed attempts, kept only after they redid their own task and others.</div></section>`;
+  }
+  if (v && (v.stuck || []).length) {
+    out += `<h2 class="section">Stuck</h2><section class="card">${v.stuck.map((f) => `<div><b>${esc(f.what)}</b><div class="sub">${esc(f.why)}</div></div>`).join("")}</section>`;
+  }
+  if (v) out += `<section class="card">${logBox("v2-log", v.log, "Blender v2's log")}</section>`;
+  if (at && (at.areas || []).length) {
+    const sm = at.summary || {}, done = at.areas.filter((a) => a.done).length;
+    out += `<h2 class="section">Atlas of Blender ${esc(at.version || "")}</h2><section class="card">
+      <div class="row"><span class="title">${done} of ${at.areas.length} areas read</span><span class="pill ${at.running ? "running" : ""}">${at.running ? "building" : done < at.areas.length ? "paused" : "done"}</span></div>
+      <dl class="kv"><dt>techniques</dt><dd>${sm.techniques ?? 0} · ${sm.reachable ?? 0} it can do · ${sm.gaps ?? 0} gaps</dd>
+        ${at.built ? `<dt>last built</dt><dd>${esc(ago(at.built))}</dd>` : ""}</dl>
+      ${at.running && at.now ? `<div class="sub">${esc(at.now)}</div>` : ""}
+      ${at.error ? `<div class="sub warn">stopped: ${esc(at.error)}</div>` : ""}
+      ${at.areas.map((a) => `<div class="area"><span>${esc(a.title)} <span class="sub">${esc(a.tier)}</span></span>
+          <span class="sub">${a.done ? `${a.reachable}/${a.techniques} reachable` : at.running && at.area === a.title ? "reading now" : "not read yet"}</span>
+          <div class="stack" role="img" aria-label="${a.reachable} reachable, ${a.gaps} gaps">${a.techniques
+            ? `<span style="flex:${a.reachable}"></span><span style="flex:${a.gaps}"></span>` : ""}</div></div>`).join("")}
+      <div class="sub"><span class="ok">■</span> it can do (proved in Blender) · <span class="warn">■</span> gap (no proof ran yet)</div>
+      ${!at.running && done < at.areas.length ? `<div class="actions"><button class="primary" data-cmd="atlas.start" data-target="blender" data-label="Atlas">Go on building</button></div>` : ""}
+    </section>`;
+  }
+  return out + spotChecks();
+}
+
 function overview() {
   // Both kinds of training on one screen: the deployable agents first, then the skills.
   const ag = status?.agents || [], sk = status?.trainings || [];
   const live = ag.filter((a) => a.running).length + sk.filter((t) => ["running", "queued"].includes(t.status)).length;
   return `<div class="sub">${live} training now · ${ag.length} deployable agents · ${sk.length} skills</div>
     <h2 class="section">Deployable agents</h2>${agents()}
-    <h2 class="section">Skills</h2>${trainings()}`;
+    <h2 class="section">Skills</h2>${trainings()}
+    ${status?.v2 ? `<div class="sub">Blender v2 has its own tab below.</div>` : ""}`;
 }
 
 function trainings() {
@@ -266,6 +422,7 @@ function trainings() {
       ${(t.proof || []).length ? `<div class="sub">last lessons tested: ${t.proof.map((r) => `${Math.round(r.before)}→${Math.round(r.after)}${r.guard ? " (guard)" : ""}`).join(", ")}</div>` : ""}
       ${t.activity || t.now ? `<div class="sub">${esc(t.activity || t.now)}</div>` : ""}
       ${!running && t.stop_reason ? `<div class="sub">Stopped: ${esc(t.stop_reason)}</div>` : ""}
+      ${logBox(`skill-${t.id}`, t.log)}
       <div class="actions">
         ${running ? `<button class="danger" data-cmd="skill.stop" data-target="${esc(t.id)}" data-label="Stop ${esc(t.software)}">Stop</button>` : ""}
         ${idle ? `<button data-cmd="skill.resume" data-target="${esc(t.id)}" data-label="Continue ${esc(t.software)}">Continue</button>` : ""}
@@ -287,11 +444,32 @@ function agents() {
         ${a.real_key ? `<dt>real files</dt><dd>${a.real_key.settled} settled · real ${pct(a.real_key.real.accuracy)} · benchmark ${pct(a.real_key.benchmark.accuracy)}</dd>` : ""}
         ${a.rejected ? `<dt>lessons refused</dt><dd>${a.rejected} (broke something or fixed nothing)</dd>` : ""}</dl>
       ${a.last ? `<div class="sub">${esc(a.last)}</div>` : ""}
+      ${logBox(`agent-${a.id}`, a.log)}
       <div class="actions">
         ${a.running ? `<button class="danger" data-cmd="agent.stop" data-target="${a.id}" data-label="Stop ${esc(a.name)}">Stop</button>`
           : `<button class="primary" data-cmd="agent.until" data-target="${a.id}" data-label="${esc(a.name)} until ${a.target ?? 90}%">Train until ${a.target ?? 90}%</button>
              <button data-cmd="agent.more" data-target="${a.id}" data-label="${esc(a.name)}: one more cycle">One more cycle</button>`}
       </div></section>`).join("");
+}
+
+function health() {
+  // Each model's record: problems first (gone, resting, mostly failing), then the rest by use.
+  const list = (status?.health || []).filter((m) => m.ok + m.failed > 0);
+  if (!list.length) return "";
+  const rank = (m) => (m.missing ? 0 : m.resting ? 1 : m.failed > m.ok ? 2 : 3);
+  list.sort((x, y) => rank(x) - rank(y) || y.ok + y.failed - (x.ok + x.failed));
+  const row = (m) => {
+    const state = m.missing ? `<span class="pill failed">gone</span>` : m.resting ? `<span class="pill stopped">resting</span>`
+      : m.failed > m.ok ? `<span class="pill stopped">failing</span>` : `<span class="pill done">ok</span>`;
+    return `<tr><td>${esc(short(m.model))}${rank(m) < 3 && m.error ? `<div class="sub">${esc(m.error)}</div>` : ""}</td>
+      <td>${m.ok}<span class="sub"> / ${m.failed}</span></td><td>${m.seconds != null ? `${m.seconds}s` : "–"}</td><td>${state}</td></tr>`;
+  };
+  const head = `<tr><th>Model</th><th>ok / failed</th><th>typical</th><th></th></tr>`;
+  const first = list.slice(0, 12), rest = list.slice(12);
+  return `<section class="card"><div class="title">How each model is answering</div>
+      <table>${head}${first.map(row).join("")}</table>
+      ${rest.length ? `<details data-key="health-rest"${opened.has("health-rest") ? " open" : ""}><summary>${rest.length} more</summary><table>${rest.map(row).join("")}</table></details>` : ""}
+      <div class="sub">Gone: answered "not found" (hidden for a while). Resting: rate-limited, back within 30 min.</div></section>`;
 }
 
 function models() {
@@ -305,6 +483,7 @@ function models() {
       ${budget.map(budgetRow).join("") || `<div class="sub">Nothing used yet today.</div>`}</section>
     ${docs.length ? `<section class="card"><div class="title">Documentation the agents search</div><table><tr><th>Program</th><th>Pages</th><th>Passages</th></tr>
       ${docs.filter((d) => d.chunks).map((d) => `<tr><td>${esc(d.app)}${d.partial ? ' <span class="sub">(filling in)</span>' : ""}</td><td>${d.pages.toLocaleString()}</td><td>${d.chunks.toLocaleString()}</td></tr>`).join("")}</table></section>` : ""}
+    ${health()}
     <section class="card"><table><tr><th>Free model</th><th>Today</th><th></th></tr>${list.map((m) =>
     `<tr><td>${esc(m.model)}</td><td>${m.today ?? "–"}</td><td>${m.blocked_for > 0 ? `<span class="pill stopped">resting ${Math.round(m.blocked_for / 3600)} h</span>` : ""}</td></tr>`).join("")}</table></section>`;
 }
@@ -356,7 +535,11 @@ function render() {
   $("#nav").hidden = !store.get("token");
   $("#tab-admin").hidden = !status?.master;
   document.querySelectorAll("nav button").forEach((b) => b.classList.toggle("on", b.dataset.tab === tab));
-  $("#main").innerHTML = { now, trainings: overview, models, admin, settings }[tab]();
+  if (tab === "admin" && !status?.master) tab = "now";
+  $("#main").innerHTML = { now, trainings: overview, blender, models, admin, settings }[tab]();
+  document.querySelectorAll("details[data-key]").forEach((d) => {
+    d.ontoggle = () => { if (d.open) opened.add(d.dataset.key); else opened.delete(d.dataset.key); };
+  });
   document.querySelectorAll("[data-cmd]").forEach((b) => {
     b.disabled = busy;
     b.onclick = () => {
@@ -364,6 +547,13 @@ function render() {
       command(b.dataset.cmd, b.dataset.target, b.dataset.args ? JSON.parse(b.dataset.args) : {}, b.dataset.label);
     };
   });
+  document.querySelectorAll("[data-note]").forEach((el) => { el.oninput = () => { spotNotes[el.dataset.note] = el.value; }; });
+  document.querySelectorAll("[data-spot-grade]").forEach((b) => {
+    b.disabled = busy;
+    b.onclick = () => command("spot.grade", b.dataset.id, { verdict: b.dataset.spotGrade, note: spotNotes[b.dataset.id] || "" },
+                              `Spot check: ${b.dataset.spotGrade}`);
+  });
+  loadSpotImages();
   const save = $("#f-save");
   if (save) save.onclick = async () => {
     store.set("token", $("#f-token").value.trim()); store.set("code", $("#f-code").value.trim());
@@ -375,7 +565,7 @@ function render() {
   };
 }
 
-document.querySelectorAll("nav button").forEach((b) => (b.onclick = () => { tab = b.dataset.tab; render(); }));
+document.querySelectorAll("nav button").forEach((b) => (b.onclick = () => { tab = b.dataset.tab; store.set("tab", tab); render(); window.scrollTo(0, 0); }));
 document.addEventListener("visibilitychange", () => { if (!document.hidden && Date.now() - lastFetch > 20000) load(); });
 setInterval(() => { if (!document.hidden) load(); }, 60000);
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
