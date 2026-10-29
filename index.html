@@ -148,6 +148,7 @@
 // the PC writes status.json to a private repo of yours; this page reads it and
 // writes signed commands there, with a token that reaches only that repo.
 const API = "https://api.github.com";
+const APP_VERSION = "2026-10-29 · 2";          // shown under More: which phone app this is
 const store = {
   get(k) { try { return localStorage.getItem("agh." + k) || ""; } catch { return ""; } },
   set(k, v) { try { localStorage.setItem("agh." + k, v); } catch { /* private mode: kept for this visit */ } },
@@ -851,7 +852,8 @@ function more() {
     ${(status?.agents || []).length ? item("agents", "Deployable agents", "Their exams and training") : ""}
     ${status?.v2 || status?.atlas ? item("blender", "Blender in depth", "Its map of techniques, procedures and the full log") : ""}
     ${status?.master ? item("admin", "Admin", "Admins, downloads, apps in use") : ""}
-    ${item("settings", "This phone", "Connection to your PC")}`;
+    ${item("settings", "This phone", "Connection to your PC")}
+    <div class="sub hint" style="text-align:center">Phone app version ${esc(APP_VERSION)}</div>`;
 }
 
 function render() {
@@ -906,7 +908,21 @@ document.querySelectorAll("nav button").forEach((b) => (b.onclick = () => { tab 
 $("#refresh").onclick = async () => { $("#refresh").textContent = "…"; await load(); $("#refresh").textContent = "↻ Refresh"; };
 document.addEventListener("visibilitychange", () => { if (!document.hidden && Date.now() - lastFetch > 20000) load(); });
 setInterval(() => { if (!document.hidden) load(); }, 60000);
-if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+// A newer version of this page is picked up by itself: the browser is asked for a fresh sw.js whenever the app comes
+// back to the screen, and when a new one takes over, the page reloads once. An app left open used to keep running its
+// old code for days - only the data refreshed.
+if ("serviceWorker" in navigator) {
+  const hadController = !!navigator.serviceWorker.controller;
+  let reloaded = false;
+  navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).then((reg) => {
+    const check = () => reg.update().catch(() => {});
+    document.addEventListener("visibilitychange", () => { if (!document.hidden) check(); });
+    setInterval(check, 15 * 60 * 1000);
+  }).catch(() => {});
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (hadController && !reloaded) { reloaded = true; location.reload(); }
+  });
+}
 load();
 </script>
 </body>
