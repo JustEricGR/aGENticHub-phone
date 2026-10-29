@@ -91,21 +91,55 @@
   .stack { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: var(--soft); grid-column: 1 / -1; gap: 2px; }
   .stack > span:nth-child(1) { background: var(--ok); } .stack > span:nth-child(2) { background: var(--warn); opacity: .7; }
   .ok { color: var(--ok); } .warn { color: var(--warn); } .bad { color: var(--bad); }
+.rpics{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin:8px 0}.rpic{margin:0}.rpic img{width:100%;border-radius:8px;background:#fff;min-height:60px}.rpic figcaption{font-size:12px;opacity:.7}
+  html, body { max-width: 100%; overflow-x: hidden; }
+  button { max-width: 100%; white-space: normal; }
+  .tiles.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .tile { min-width: 0; overflow-wrap: anywhere; }
+  .hero { gap: 6px; } .hero-line { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 17px; }
+  .hero.off { border-left: 4px solid var(--bad); }
+  .calm { border-left: 4px solid var(--ok); }
+  .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .skill { min-width: 0; width: 100%; display: grid; gap: 6px; text-align: left; background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+           padding: 12px; min-height: 112px; align-content: start; }
+  .skill.running { border-color: var(--accent); }
+  .skill-name { font-weight: 650; font-size: 15px; }
+  .skill-score { font-size: 28px; font-weight: 750; line-height: 1.1; }
+  .skill-state { font-size: 12px; color: var(--sub); display: flex; align-items: center; gap: 4px; }
+  .skill.done .skill-state { color: var(--ok); } .skill.stopped .skill-state { color: var(--warn); }
+  .rowcard { text-align: left; width: 100%; font: inherit; color: inherit; }
+  .hint { padding: 0 2px; }
+  .lead { font-size: 15px; }
+  .big-title { font-size: 20px; }
+  .clip { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  button.wide { width: 100%; min-height: 48px; font-weight: 650; }
+  button.link { background: none; border: 0; color: var(--accent); padding: 4px 8px; min-height: 0; }
+  .actions.three button { flex: 1; min-height: 48px; }
+  .versus { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; text-align: center; }
+  .versus b { display: block; font-size: 26px; } .versus span { color: var(--sub); font-size: 12px; }
+  .banner.good { border-left: 4px solid var(--ok); } .banner { border-left: 4px solid var(--accent); }
+  .spin { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--line); border-top-color: var(--accent);
+          border-radius: 50%; animation: spin 0.9s linear infinite; vertical-align: -2px; }
+  .spin.small { width: 10px; height: 10px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
+  nav .badge { display: inline-block; min-width: 18px; padding: 0 5px; border-radius: 9px; background: var(--bad); color: #fff;
+               font-size: 11px; margin-left: 4px; line-height: 18px; }
+  header .top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  header .top button { min-height: 34px; padding: 4px 12px; }
 </style>
 </head>
 <body>
 <header>
-  <h1>aGENtic Hub</h1>
+  <div class="top"><h1>aGENtic Hub</h1><button id="refresh" aria-label="Refresh now">↻ Refresh</button></div>
   <div class="meta" id="meta">Not connected</div>
 </header>
 <main id="main"></main>
 <nav id="nav" hidden>
-  <button data-tab="now" class="on">Now</button>
-  <button data-tab="trainings">Training</button>
-  <button data-tab="blender">Blender</button>
-  <button data-tab="models">Models</button>
-  <button data-tab="admin" id="tab-admin" hidden>Admin</button>
-  <button data-tab="settings">Phone</button>
+  <button data-tab="home" class="on">Home</button>
+  <button data-tab="skills">Skills</button>
+  <button data-tab="check" id="tab-check">Check</button>
+  <button data-tab="more">More</button>
 </nav>
 <div class="toast" id="toast"></div>
 <script>
@@ -118,7 +152,9 @@ const store = {
   get(k) { try { return localStorage.getItem("agh." + k) || ""; } catch { return ""; } },
   set(k, v) { try { localStorage.setItem("agh." + k, v); } catch { /* private mode: kept for this visit */ } },
 };
-let status = null, tab = store.get("tab") || "now", lastFetch = 0, busy = false;
+// Tabs of the earlier phone page map onto the simpler ones.
+const OLD_TABS = { now: "home", trainings: "skills", report: "skills" };
+let status = null, tab = OLD_TABS[store.get("tab")] || store.get("tab") || "home", lastFetch = 0, busy = false;
 const opened = new Set();                         // the <details> left open survive the minute's refresh
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -143,6 +179,7 @@ async function gh(path, init = {}) {
 
 async function load() {
   if (!store.get("token") || !store.get("repo")) { tab = "settings"; render(); return; }
+  if (progress && progress.ok != null && Date.now() - (progress.shown || (progress.shown = Date.now())) > 60000) progress = null;
   try {
     const res = await gh(`repos/${store.get("repo")}/contents/status.json?t=${Date.now()}`, { headers: { Accept: "application/vnd.github.raw+json" } });
     if (res.status === 401 || res.status === 403) throw new Error("GitHub refused the token - check it in Phone.");
@@ -176,7 +213,7 @@ function b64(text) { return btoa(String.fromCharCode(...new TextEncoder().encode
 
 async function command(action, target, args, label) {
   if (busy) return;
-  busy = true; render();
+  busy = true; progress = { label, stage: "Sending it to your PC…" }; render();
   try {
     const id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
     const body = { id, action, target: String(target), args: args || {}, at: new Date().toISOString().slice(0, 19) + "Z" };
@@ -184,18 +221,19 @@ async function command(action, target, args, label) {
     const put = await gh(`repos/${store.get("repo")}/contents/commands/${id}.json`, { method: "PUT",
       body: JSON.stringify({ message: `phone: ${action}`, content: b64(JSON.stringify(body)) }) });
     if (!put.ok) throw new Error(`GitHub refused the command (${put.status}).`);
-    toast(`${label}: sent - the PC picks it up within 30 s`);
+    progress = { label, stage: "Sent. Waiting for your PC to pick it up (it looks every 30 seconds)…" }; render();
     for (let i = 0; i < 24; i++) {
       await new Promise((r) => setTimeout(r, 7500));
+      if (i === 6) { progress.stage = "Still waiting - your PC may be busy or asleep…"; render(); }
       const res = await gh(`repos/${store.get("repo")}/contents/results/${id}.json`, { headers: { Accept: "application/vnd.github.raw+json" } });
       if (res.ok) {
         const result = await res.json();
-        toast(result.ok ? `${label}: done` : `${label}: ${result.error}`);
+        progress = result.ok ? { label, stage: "Done. Your PC did it.", ok: true } : { label, stage: `Your PC could not: ${result.error}`, ok: false };
         await load(); return;
       }
     }
-    toast(`${label}: no answer yet - is the PC on?`);
-  } catch (err) { toast(err.message || String(err)); }
+    progress = { label, stage: "No answer in 3 minutes - is your PC on? It will still do it when it wakes.", ok: false };
+  } catch (err) { progress = { label, stage: err.message || String(err), ok: false }; }
   finally { busy = false; render(); }
 }
 
@@ -399,8 +437,65 @@ function blender() {
   return out + spotChecks();
 }
 
-const ENGINE = { workshop: "skill", v2: "skill · known answers", agent: "deployable agent" };
-const ACT = { stop: "Stop", resume: "Continue", until: "Train until target", approve: "Approve", start: "Start", more: "One more cycle" };
+const ENGINE = { workshop: "skill", v2: "one skill · known answers", agent: "deployable agent" };
+const ACT = { stop: "Stop", resume: "Continue", until: "Train until target", approve: "Approve", start: "Start", more: "One more cycle",
+  benchmark: "Take v1's exam", demo: "Run a live demo", report: "Rebuild the report", start_v2: "Train on known answers" };
+
+// A skill's report - how it trained, with its worked examples' pictures - read from the relay (training_report.push).
+let report = null, reportProgram = "", reportError = "";
+const reportImages = {};
+async function openReport(program) {
+  reportProgram = program; report = null; reportError = ""; tab = "report"; render(); window.scrollTo(0, 0);
+  try {
+    const res = await gh(`repos/${store.get("repo")}/contents/reports/${program}.json?t=${Date.now()}`, { headers: { Accept: "application/vnd.github.raw+json" } });
+    if (!res.ok) throw new Error(res.status === 404 ? "No report sent yet - press Rebuild the report, then wait a minute." : `GitHub: ${res.status}`);
+    report = await res.json();
+  } catch (err) { reportError = err.message || String(err); }
+  render();
+}
+async function loadReportImages() {
+  for (const img of document.querySelectorAll("img[data-rimg]")) {
+    const key = img.dataset.rimg;
+    if (reportImages[key] === undefined) {
+      reportImages[key] = null;
+      try {
+        const res = await gh(`repos/${store.get("repo")}/contents/reports/${key}.jpg`, { headers: { Accept: "application/vnd.github.raw+json" } });
+        reportImages[key] = res.ok ? URL.createObjectURL(await res.blob()) : "";
+      } catch { reportImages[key] = ""; }
+    }
+    if (reportImages[key]) img.src = reportImages[key]; else if (reportImages[key] === "") img.alt = "picture not sent yet";
+  }
+}
+function reportView() {
+  if (reportError) return `<div class="empty">${esc(reportError)}</div><div class="actions"><button data-back>Back</button></div>`;
+  const r = report;
+  if (!r) return `<div class="empty">Loading the ${esc(reportProgram)} report…</div>`;
+  const pic = (name, label) => name ? `<figure class="rpic"><img data-rimg="${esc(r.program)}/${esc(name.replace(/\.[a-z]+$/, ""))}" alt="${esc(label)}"><figcaption>${esc(label)}</figcaption></figure>` : "";
+  const example = (ex, n) => `<section class="card">
+      <div class="row"><span class="title">${n}. ${esc(ex.title)}</span><span class="pill ${ex.verified ? "approved" : "stopped"}">${pct(ex.score)}</span></div>
+      <div class="sub">${esc(ex.why_shown || "")} · ${esc(ex.level || "")} · ${ex.tries || 1} tr${ex.tries === 1 ? "y" : "ies"} · ${esc(short(ex.model))}</div>
+      <p>${esc(ex.instruction)}</p>
+      <div class="rpics">${pic(ex.pictures.start, "start")}${pic(ex.pictures.goal, "goal (reference)")}${pic(ex.pictures.result, "what it made")}</div>
+      ${(ex.requirements || []).length ? (ex.requirements || []).map((q) => `<div class="sub">${q.met ? "✓" : "✗"} ${esc(q.why)}</div>`).join("")
+        : (ex.unmet || []).map((u) => `<div class="sub">✗ ${esc(u)}</div>`).join("") || (ex.checks || []).map((c) => `<div class="sub">✓ ${esc(c.label)}</div>`).join("")}
+      ${ex.code ? `<details><summary>The code it wrote</summary><div class="log">${esc(ex.code)}</div></details>` : ""}
+    </section>`;
+  const tiers = Object.values(r.tiers || {});
+  return `<div class="actions"><button data-back>← Training</button></div>
+    <section class="card"><div class="title">${esc(r.name)} - how the skill trained</div>
+      <div class="sub">${esc(r.label)} · built ${esc(r.built)} · ${esc(r.status)}</div>
+      <dl class="kv"><dt>practice now</dt><dd>${pct(r.practice_now)}</dd><dt>fully right</dt><dd>${pct(r.verified_share)} of ${r.totals?.attempts || 0}</dd>
+        <dt>mastered</dt><dd>${tiers.reduce((a, t) => a + t.mastered, 0)}/${tiers.reduce((a, t) => a + t.techniques, 0)}</dd>
+        <dt>procedures</dt><dd>${r.procedures?.kept ?? 0}</dd><dt>v1's exam</dt><dd>${pct(r.v1?.accuracy)}</dd>
+        <dt>same exam, merged skill</dt><dd>${pct(r.gate?.v2_on_v1)}</dd></dl>
+      ${spark((r.curve || []).filter((_, i, a) => i % Math.max(1, Math.floor(a.length / 40)) === 0))}</section>
+    <h2 class="section">Worked examples</h2>${(r.examples || []).map((ex, i) => example(ex, i + 1)).join("") || `<div class="empty">None yet.</div>`}
+    <h2 class="section">Live demos (unseen tasks)</h2>${(r.demos || []).map((d, i) => example({ ...d, title: d.technique, why_shown: "unseen task", tries: 1,
+      pictures: { start: "", ...d.pictures } }, i + 1)).join("") || `<div class="empty">None yet - Run a live demo on the Training tab.</div>`}
+    <h2 class="section">Exams</h2><section class="card">${(r.exams || []).slice(-8).reverse().map((e) => `<div class="row"><span>${esc(e.tier)} · ${esc(String(e.at || "").slice(0, 10))}</span><span>${pct(e.accuracy)}</span></div>`).join("") || `<div class="sub">None yet.</div>`}</section>
+    <h2 class="section">Rules it kept</h2><section class="card">${(r.notes || []).filter((n) => n.status === "kept").slice(0, 15).map((n) => `<div class="sub"><b>${esc(n.technique)}</b>: ${esc(n.text)}</div>`).join("") || `<div class="sub">None yet.</div>`}</section>
+    <h2 class="section">Skills by other people</h2><section class="card">${(r.outside?.sources || []).map((s) => `<div class="sub">${esc(s.key)} · ${esc(s.license)} · ${s.allowed ? `${s.tips} tips` : `refused: ${esc(s.why)}`}</div>`).join("") || `<div class="sub">Not searched yet.</div>`}</section>`;
+}
 
 function unified() {
   // Every training - program skills and deployable agents - with the same card, as the PC's Training screen shows them.
@@ -419,7 +514,10 @@ function unified() {
       ${t.model ? `<div class="sub">model: ${esc(short(t.model))}</div>` : ""}
       ${t.now ? `<div class="sub">${esc(t.now)}</div>` : ""}
       ${!t.running && t.stop_reason ? `<div class="sub">Stopped: ${esc(t.stop_reason)}</div>` : ""}
+      ${t.engine === "v2" && t.v1 ? `<div class="sub">One skill · v1's exam ${pct(t.v1.accuracy)} · same exam by the merged skill ${pct(t.gate?.v2_on_v1)} · in use: ${esc(t.in_use || "v1")}</div>` : ""}
+      ${t.demo?.running ? `<div class="sub">Live demo: ${esc(t.demo.now || "")}</div>` : t.demo?.last ? `<div class="sub">Last demo: ${esc(t.demo.last)}</div>` : ""}
       ${logBox(`log-${t.key}`, t.log)}
+      ${t.engine === "v2" && t.program ? `<div class="actions"><button class="primary" data-report="${esc(t.program)}">See how it trained</button></div>` : ""}
       <div class="actions">${(t.actions || []).map((x) => `<button class="${x === "stop" ? "danger" : x === "until" ? "primary" : ""}" data-cmd="training.act"
           data-target="${esc(t.key)}" data-args='${esc(JSON.stringify({ action: x, target: x === "until" ? (t.target || 90) : null }))}'
           ${x === "approve" ? `data-confirm="Approve ${esc(t.name)}? Its other tries are deleted."` : ""}
@@ -563,14 +661,218 @@ function settings() {
     </section>`;
 }
 
+// ---------------------------------------------------------------------------------------------------------------
+// The simple phone: Home (is the PC on, what needs you, your skills), a page per skill, Check (is each result
+// right?), More (models, Blender's map, admin, this phone). Plain words; one clear action; feedback on every step.
+// ---------------------------------------------------------------------------------------------------------------
+const WORD = { running: "Training", approved: "Ready", stopped: "Paused", finished: "Paused", failed: "Stopped",
+  "not started": "Not started", "needs you": "Needs you", queued: "Waiting", error: "Problem" };
+const SAY = { stop: "Pause", resume: "Continue", until: "Train until target", approve: "Use this skill", start: "Start training",
+  more: "One more round", benchmark: "Compare with the old skill", demo: "Try it on a new task", report: "Update the report",
+  start_v2: "Start the new training" };
+const ASK = {
+  approve: (t) => t.engine === "v2" ? `Give your agents the merged ${t.name} skill? The old one stays inside it.`
+    : `Approve ${t.name}? Its other tries are deleted.`,
+  start_v2: (t) => `Start ${t.name}'s new training? It reads the program's documentation first, then practises on tasks with known answers. The current skill stays in use until the new one is better.`,
+  stop: (t) => `Pause ${t.name}'s training? You can continue it any time.`,
+};
+let skillKey = store.get("skill") || "";
+let progress = null;                              // the command on its way: {label, stage, ok}
+
+// What a training says it is doing, in plain words (its log is written for the developer).
+const PLAIN = [
+  [/^today's plan: (\d+) technique-levels.*$/, (m) => `Practising ${m[1]} techniques today`],
+  [/^mapping .* first.*$/, () => "Reading the program's documentation and testing what it can do"],
+  [/^v1's exam, taken by v2: ([\d.]+)%.*\(v1: ([\d.]+)%\).*$/, (m) => `Compared with the old skill: new ${Math.round(m[1])}%, old ${Math.round(m[2])}%`],
+  [/^(.+?) \((drill|start_goal)\), try (\d+):.*$/, (m) => `Practising: ${m[1]}${m[3] > 1 ? ` (try ${m[3]})` : ""}`],
+  [/^(.+?) \((drill|start_goal)\): ([\d.]+)% of requirements.*$/, (m) => `${m[1]}: ${Math.round(m[3])}% right`],
+  [/^(.+?) \((drill|start_goal)\): .*wrote no code.*$/, (m) => `${m[1]}: the model did not answer - not counted`],
+  [/^[^:]+: (.+) - (sandbox|typed)$/, (m) => `Learned it can do: ${m[1]}`],
+  [/^[^:]+: (.+) - gap$/, (m) => `Cannot do yet (tried again weekly): ${m[1]}`],
+  [/^[^:]+: reading .*$/, () => "Reading the documentation"],
+  [/^outside skills?: .*$/, () => "Learning from skills other people published"],
+  [/^no free model has training room.*$/, () => "Waiting for tomorrow's free model allowance"],
+  [/^.*resting (\d+) minutes.*$/, (m) => `The free model is busy - resting ${m[1]} minutes`],
+];
+function plain(text) {
+  const s = String(text || "").trim();
+  for (const [re, fn] of PLAIN) { const m = s.match(re); if (m) return fn(m); }
+  return s;
+}
+
+function word(t) { return t.running ? "Training" : WORD[t.status] || (t.status ? t.status[0].toUpperCase() + t.status.slice(1) : "–"); }
+function tone(t) { return t.running ? "running" : t.status === "approved" ? "done" : ["stopped", "finished", "failed", "needs you"].includes(t.status) ? "stopped" : ""; }
+
+function scoreLine(t) {
+  if (t.score == null) return t.engine === "v2" ? "Still learning the program - no score yet." : "No exam yet.";
+  if (t.engine === "v2") return `Gets <b>${pct(t.score)}</b> of each practice task right (checked from the file itself).`;
+  if (t.kind === "agent") return `Gets <b>${pct(t.score)}</b> right on documents it never saw.`;
+  return `Exam: <b>${pct(t.score)}</b> of each task's requirements met.`;
+}
+
+function progressBanner() {
+  if (!progress) return "";
+  const icon = progress.ok === true ? "✓" : progress.ok === false ? "!" : `<span class="spin"></span>`;
+  return `<section class="card banner ${progress.ok === false ? "alert bad" : progress.ok ? "good" : ""}">
+      <div class="row"><span><b>${icon}</b> ${esc(progress.label)}</span>${progress.ok != null ? `<button class="link" data-dismiss>OK</button>` : ""}</div>
+      <div class="sub">${esc(progress.stage)}</div></section>`;
+}
+
+function pcHero() {
+  if (!status) return "";
+  const quiet = (Date.now() - Date.parse(status.at_utc || "")) / 60000;
+  const list = status.unified || [];
+  const live = list.filter((t) => t.running).length;
+  if (quiet > 20) {
+    const gap = quiet < 120 ? `${Math.round(quiet)} minutes` : `${Math.round(quiet / 60)} hours`;
+    return `<section class="card hero off"><div class="hero-line"><span class="dot off"></span><b>Your PC is not answering</b></div>
+      <div class="sub">Nothing came from ${esc(status.host)} for ${gap}. It is asleep, off or offline - training waits until it is back.
+      What you see below is from ${esc(String(status.at).slice(11, 16))}.</div></section>`;
+  }
+  return `<section class="card hero"><div class="hero-line"><span class="dot on"></span><b>Your PC is on</b>
+      <span class="sub">· ${live ? `${live} training${live === 1 ? "" : "s"} running` : "nothing training"}</span></div>
+      ${pcTiles()}</section>`;
+}
+
+function needsYou() {
+  const alerts = (status?.alerts || []);
+  if (!alerts.length) return `<section class="card calm"><b>Nothing needs you</b><div class="sub">Everything is running by itself.</div></section>`;
+  return alerts.slice(0, 6).map((a) => {
+    const t = a.action && (status.unified || []).find((x) => x.key === a.action.key);
+    const button = a.tab ? `<button class="primary" data-go="${esc(a.tab)}">Open</button>`
+      : t ? `<button class="primary" data-cmd="training.act" data-target="${esc(t.key)}" data-args='${esc(JSON.stringify({ action: a.action.do }))}'
+              ${ASK[a.action.do] ? `data-confirm="${esc(ASK[a.action.do](t))}"` : ""} data-label="${esc(t.name)}: ${esc(SAY[a.action.do] || a.action.do)}">${esc(SAY[a.action.do] || a.action.do)}</button>` : "";
+    return `<section class="card alert ${a.level === "bad" ? "bad" : ""}"><div>${esc(a.text)}</div>${button ? `<div class="actions">${button}</div>` : ""}</section>`;
+  }).join("");
+}
+
+function skillTiles() {
+  const list = (status?.unified || []).filter((t) => t.kind !== "error");
+  if (!list.length) return `<div class="empty">No skills on this PC yet.</div>`;
+  return `<div class="grid">${list.map((t) => `<button class="skill ${tone(t)}" data-skill="${esc(t.key)}">
+      <span class="skill-name">${esc(t.name)}</span>
+      <span class="skill-score">${t.score == null ? `<span class="sub">learning…</span>` : pct(t.score)}</span>
+      <span class="bar"><span style="width:${Math.min(100, t.score || 0)}%"></span></span>
+      <span class="skill-state">${t.running ? `<span class="spin small"></span> ` : ""}${esc(word(t))}${t.kind === "agent" ? " · agent" : ""}</span>
+    </button>`).join("")}</div>`;
+}
+
+function home() {
+  if (!status) return `<div class="empty">No news from your PC yet.</div>`;
+  const events = (status.events || []).slice(0, 6).map((e) =>
+    `<div class="event"><time>${esc(when(e.at))}</time><span><em>${esc(e.from)}</em> ${esc(plain(e.what))}</span></div>`).join("");
+  const more = (status.events || []).slice(6, 30).map((e) =>
+    `<div class="event"><time>${esc(when(e.at))}</time><span><em>${esc(e.from)}</em> ${esc(e.what)}</span></div>`).join("");
+  return `${progressBanner()}${pcHero()}
+    <h2 class="section">Needs you</h2>${needsYou()}
+    <h2 class="section">Your skills</h2>${skillTiles()}
+    <div class="sub hint">Tap a skill to see how it trained, pause it or try it.</div>
+    <h2 class="section">Lately</h2><section class="card">${events || `<div class="sub">Nothing yet.</div>`}
+      ${more ? `<details data-key="home-more"${opened.has("home-more") ? " open" : ""}><summary>Show more</summary>${more}</details>` : ""}</section>`;
+}
+
+function skillsList() {
+  const list = (status?.unified || []).filter((t) => t.kind !== "error");
+  return `${progressBanner()}<div class="sub hint">Each skill is measured the same way: the share of each task done right, checked by code on tasks it never practised.</div>
+    ${list.map((t) => `<button class="card rowcard" data-skill="${esc(t.key)}">
+      <div class="row"><span class="title">${esc(t.name)}</span><span class="pill ${tone(t)}">${esc(word(t))}</span></div>
+      <div class="row"><span class="big">${t.score == null ? `<span class="sub">learning…</span>` : pct(t.score)}</span><span class="sub">${t.kind === "agent" ? "deployable agent" : "skill"}</span></div>
+      <div class="bar"><span style="width:${Math.min(100, t.score || 0)}%"></span></div>
+      ${t.now ? `<div class="sub clip">${esc(plain(t.now))}</div>` : ""}</button>`).join("") || `<div class="empty">No skills on this PC yet.</div>`}`;
+}
+
+function actionButton(t, x, primary) {
+  return `<button class="${primary ? "primary" : x === "stop" ? "danger" : ""}" data-cmd="training.act" data-target="${esc(t.key)}"
+      data-args='${esc(JSON.stringify({ action: x, target: x === "until" ? (t.target || 90) : null }))}'
+      ${ASK[x] ? `data-confirm="${esc(ASK[x](t))}"` : ""}
+      data-label="${esc(t.name)}: ${esc(SAY[x] || x)}">${x === "until" ? `Train until ${t.target || 90}%` : esc(SAY[x] || x)}</button>`;
+}
+
+function skillPage() {
+  const t = (status?.unified || []).find((x) => x.key === skillKey);
+  if (!t) return `<div class="actions"><button data-go="home">← Home</button></div><div class="empty">This skill is not on the PC any more.</div>`;
+  const acts = (t.actions || []).filter((x) => x !== "report");
+  const main = acts.find((x) => ["approve", "start", "resume", "start_v2", "until"].includes(x)) || acts.find((x) => x === "stop");
+  const rest = acts.filter((x) => x !== main);
+  const v1 = t.v1 || null, gate = t.gate || {};
+  const compare = t.engine === "v2" && v1 && v1.accuracy != null ? `<section class="card">
+      <div class="title">Old skill vs new skill</div>
+      <div class="versus"><div><b>${pct(v1.accuracy)}</b><span>the skill in use (v1) on its exam</span></div>
+        <div><b class="${gate.beats_v1 ? "ok" : ""}">${pct(gate.v2_on_v1)}</b><span>the new skill on the same exam</span></div></div>
+      <div class="sub">${gate.v2_on_v1 == null ? "The new skill has not taken this exam yet." : gate.beats_v1
+        ? "The new skill is better - you can give it to your agents." : "The old skill stays in use until the new one beats it."}</div></section>` : "";
+  const attempts = (t.attempts || []).slice(0, 6).map((a) => `<div class="event"><time>${a.verified ? `<b class="ok">✓</b>` : `<b class="${(a.score || 0) >= 50 ? "warn" : "bad"}">${pct(a.score)}</b>`}</time>
+      <span>${esc(a.title)}${!a.verified && (a.unmet || []).length ? `<div class="sub">missed: ${a.unmet.slice(0, 2).map(esc).join("; ")}</div>` : ""}</span></div>`).join("");
+  return `${progressBanner()}<div class="actions"><button data-go="${esc(store.get("from") || "home")}">← Back</button></div>
+    <section class="card">
+      <div class="row"><span class="title big-title">${esc(t.name)}</span><span class="pill ${tone(t)}">${esc(word(t))}</span></div>
+      <div class="lead">${scoreLine(t)}</div>
+      ${t.now ? `<div class="sub">Now: ${esc(plain(t.now))}</div>` : ""}
+      ${t.demo?.running ? `<div class="sub"><span class="spin small"></span> Trying it on a new task: ${esc(t.demo.now || "")}</div>` : t.demo?.last ? `<div class="sub">Last try on a new task: ${esc(t.demo.last)}</div>` : ""}
+      ${t.engine === "v2" && t.program ? `<button class="primary wide" data-report="${esc(t.program)}">See how it trained →</button>` : ""}
+      <div class="actions">${main ? actionButton(t, main, !(t.engine === "v2" && t.program)) : ""}${rest.map((x) => actionButton(t, x, false)).join("")}</div>
+    </section>
+    ${compare}
+    ${attempts ? `<section class="card"><div class="title">Its latest tries</div>${attempts}</section>` : ""}
+    <section class="card"><details data-key="sk-${esc(t.key)}"${opened.has(`sk-${t.key}`) ? " open" : ""}><summary>More details</summary>
+      ${(t.capabilities || []).map((c) => `<div class="area"><span>${esc(c.name)}</span><span class="sub">${esc(c.detail || pct(c.score))}</span>
+        <div class="bar"><span style="width:${Math.min(100, c.score || 0)}%"></span></div></div>`).join("")}
+      ${t.model ? `<div class="sub">model: ${esc(short(t.model))}</div>` : ""}
+      ${(t.exams || []).length ? `<div class="sub">exams: ${t.exams.map((e) => `${esc(e.label)} ${pct(e.headline)}`).join(" · ")}</div>` : ""}
+      ${logBox(`log-${t.key}`, t.log, "What it did lately")}</details></section>`;
+}
+
+function checkView() {
+  const spots = status?.spots || [];
+  const items = spots.flatMap((s) => s.items.map((i) => ({ ...i, program: s.program, name: s.name })));
+  const open = items.filter((i) => !i.grade), done = items.filter((i) => i.grade);
+  if (!items.length) return `${progressBanner()}<div class="empty">Nothing to check this week.</div>`;
+  const card = (i) => `<section class="card">
+      <div class="row"><span class="title">${esc(i.name)}: ${esc(i.title)}</span></div>
+      <div class="sub">The task: ${esc(i.instruction)}</div>
+      <div class="pics"><figure class="rpic"><img data-spot="${esc(i.id)}-render" alt="what it made"><figcaption>what it made</figcaption></figure>
+        <figure class="rpic"><img data-spot="${esc(i.id)}-goal" alt="the goal"><figcaption>the goal</figcaption></figure></div>
+      <div class="sub">The checks say: ${i.verified ? `<b class="ok">all right</b>` : `<b class="warn">${pct(i.score)} right</b>`}${(i.unmet || []).length ? ` - missed ${i.unmet.slice(0, 2).map(esc).join("; ")}` : ""}</div>
+      ${i.grade ? `<div class="pill done">You said: ${esc(i.grade)}</div>` : `<div class="lead">Did it do the task right?</div>
+        <input data-note="${esc(i.id)}" placeholder="What is wrong? (optional)" value="${esc(spotNotes[i.id] || "")}">
+        <div class="actions three">
+          <button class="primary" data-spot-grade="right" data-id="${esc(i.id)}" data-program="${esc(i.program)}">Right</button>
+          <button class="danger" data-spot-grade="wrong" data-id="${esc(i.id)}" data-program="${esc(i.program)}">Wrong</button>
+          <button data-spot-grade="skip" data-id="${esc(i.id)}" data-program="${esc(i.program)}">Not sure</button></div>`}
+    </section>`;
+  return `${progressBanner()}<div class="sub hint">A few results a week, picked where the checks might be wrong. Your answer is the final word: a "wrong" on a result the checks passed takes its task out of practice.</div>
+    ${open.length ? `<h2 class="section">${open.length} to check</h2>${open.map(card).join("")}` : `<section class="card calm"><b>All checked for this week</b></section>`}
+    ${done.length ? `<details data-key="check-done"${opened.has("check-done") ? " open" : ""}><summary>${done.length} already checked</summary>${done.map(card).join("")}</details>` : ""}`;
+}
+
+function more() {
+  const item = (tab, title, sub) => `<button class="card rowcard" data-go="${tab}"><div class="title">${title}</div><div class="sub">${sub}</div></button>`;
+  return `${item("models", "Free models", "How much of each model's day is used, and how each is answering")}
+    ${(status?.agents || []).length ? item("agents", "Deployable agents", "Their exams and training") : ""}
+    ${status?.v2 || status?.atlas ? item("blender", "Blender in depth", "Its map of techniques, procedures and the full log") : ""}
+    ${status?.master ? item("admin", "Admin", "Admins, downloads, apps in use") : ""}
+    ${item("settings", "This phone", "Connection to your PC")}`;
+}
+
 function render() {
   const [state, text] = freshness();
   $("#meta").innerHTML = `<span class="dot ${state}"></span>${text}${status?.version ? ` · ${esc(status.version)}` : ""}`;
   $("#nav").hidden = !store.get("token");
-  $("#tab-admin").hidden = !status?.master;
-  document.querySelectorAll("nav button").forEach((b) => b.classList.toggle("on", b.dataset.tab === tab));
-  if (tab === "admin" && !status?.master) tab = "now";
-  $("#main").innerHTML = { now, trainings: overview, blender, models, admin, settings }[tab]();
+  const pending = (status?.spots || []).reduce((n, s) => n + (s.pending || 0), 0);
+  $("#tab-check").innerHTML = `Check${pending ? `<span class="badge">${pending}</span>` : ""}`;
+  const parent = { skill: "skills", report: "skills", models: "more", agents: "more", blender: "more", admin: "more", settings: "more" }[tab] || tab;
+  document.querySelectorAll("nav button").forEach((b) => b.classList.toggle("on", b.dataset.tab === parent));
+  if (tab === "admin" && !status?.master) tab = "more";
+  const views = { home, skills: skillsList, check: checkView, more, skill: skillPage, blender, models, admin, settings,
+                  agents: () => agents(), report: reportView };
+  $("#main").innerHTML = (views[tab] || home)();
+  document.querySelectorAll("[data-skill]").forEach((b) => (b.onclick = () => {
+    store.set("from", tab); skillKey = b.dataset.skill; store.set("skill", skillKey); tab = "skill"; render(); window.scrollTo(0, 0); }));
+  document.querySelectorAll("[data-go]").forEach((b) => (b.onclick = () => { tab = b.dataset.go; store.set("tab", tab); render(); window.scrollTo(0, 0); }));
+  document.querySelectorAll("[data-dismiss]").forEach((b) => (b.onclick = () => { progress = null; render(); }));
+  document.querySelectorAll("[data-report]").forEach((b) => (b.onclick = () => openReport(b.dataset.report)));
+  document.querySelectorAll("[data-back]").forEach((b) => (b.onclick = () => { tab = skillKey ? "skill" : "skills"; render(); }));
+  loadReportImages();
   document.querySelectorAll("details[data-key]").forEach((d) => {
     d.ontoggle = () => { if (d.open) opened.add(d.dataset.key); else opened.delete(d.dataset.key); };
   });
@@ -584,8 +886,9 @@ function render() {
   document.querySelectorAll("[data-note]").forEach((el) => { el.oninput = () => { spotNotes[el.dataset.note] = el.value; }; });
   document.querySelectorAll("[data-spot-grade]").forEach((b) => {
     b.disabled = busy;
-    b.onclick = () => command("spot.grade", b.dataset.id, { verdict: b.dataset.spotGrade, note: spotNotes[b.dataset.id] || "" },
-                              `Spot check: ${b.dataset.spotGrade}`);
+    b.onclick = () => command("spot.grade", b.dataset.id, { verdict: b.dataset.spotGrade, note: spotNotes[b.dataset.id] || "",
+                                                             program: b.dataset.program || "blender" },
+                              `Your answer: ${b.dataset.spotGrade === "skip" ? "not sure" : b.dataset.spotGrade}`);
   });
   loadSpotImages();
   const save = $("#f-save");
@@ -595,11 +898,12 @@ function render() {
     if (!repo && store.get("token")) {
       const me = await gh("user"); if (me.ok) repo = `${(await me.json()).login}/aGENticHub-remote`;
     }
-    store.set("repo", repo); tab = "now"; await load();
+    store.set("repo", repo); tab = "home"; await load();
   };
 }
 
 document.querySelectorAll("nav button").forEach((b) => (b.onclick = () => { tab = b.dataset.tab; store.set("tab", tab); render(); window.scrollTo(0, 0); }));
+$("#refresh").onclick = async () => { $("#refresh").textContent = "…"; await load(); $("#refresh").textContent = "↻ Refresh"; };
 document.addEventListener("visibilitychange", () => { if (!document.hidden && Date.now() - lastFetch > 20000) load(); });
 setInterval(() => { if (!document.hidden) load(); }, 60000);
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
