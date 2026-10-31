@@ -137,7 +137,7 @@
 <main id="main"></main>
 <nav id="nav" hidden>
   <button data-tab="home" class="on">Home</button>
-  <button data-tab="skills">Skills</button>
+  <button data-tab="skills">Training</button>
   <button data-tab="check" id="tab-check">Check</button>
   <button data-tab="more">More</button>
 </nav>
@@ -148,7 +148,7 @@
 // the PC writes status.json to a private repo of yours; this page reads it and
 // writes signed commands there, with a token that reaches only that repo.
 const API = "https://api.github.com";
-const APP_VERSION = "2026-10-29 · 2";          // shown under More: which phone app this is
+const APP_VERSION = "2026-10-31 · 1";          // shown under More: which phone app this is
 const store = {
   get(k) { try { return localStorage.getItem("agh." + k) || ""; } catch { return ""; } },
   set(k, v) { try { localStorage.setItem("agh." + k, v); } catch { /* private mode: kept for this visit */ } },
@@ -774,7 +774,7 @@ function home() {
 
 function skillsList() {
   const list = (status?.unified || []).filter((t) => t.kind !== "error");
-  return `${progressBanner()}<div class="sub hint">Each skill is measured the same way: the share of each task done right, checked by code on tasks it never practised.</div>
+  return `${progressBanner()}<h2 class="section">Training</h2><div class="sub hint">Each skill is measured the same way: the share of each task done right, checked by code on tasks it never practised.</div>
     ${list.map((t) => `<button class="card rowcard" data-skill="${esc(t.key)}">
       <div class="row"><span class="title">${esc(t.name)}</span><span class="pill ${tone(t)}">${esc(word(t))}</span></div>
       <div class="row"><span class="big">${t.score == null ? `<span class="sub">learning…</span>` : pct(t.score)}</span><span class="sub">${t.kind === "agent" ? "deployable agent" : "skill"}</span></div>
